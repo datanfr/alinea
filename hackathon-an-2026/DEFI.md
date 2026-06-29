@@ -76,7 +76,7 @@ débat. Sortie JSON structurée par modification :
 (Claude / Mistral), données Open Data Assemblée nationale & Sénat + Datan.
 
 ### Image principale
-![Image principale](../images/logo.png)
+![Image principale](images/logo.png)
 
 ### Contributeurs
 - Rémi Mikel
@@ -113,9 +113,5 @@ Cochez les ressources utilisées en remplaçant `[ ]` par `[x]`.
 - [ ] `legiwatch-serveur-mcp-parlement` — Serveur MCP Parlement ✺ LegiWatch
 
 ### Galerie
-- [Image 1](images/image-1.png)
-- [Image 2](images/image-2.png)
 
 ### Documents
-- [Image 1](docs/document-1.png)
-- [Image 2](docs/document-2.png)
