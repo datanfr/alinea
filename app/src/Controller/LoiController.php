@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Repository\AmendementRepository;
 use App\Repository\DebatRepository;
 use App\Repository\LoiRepository;
+use App\Service\ProvenanceAnalyseur;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -32,20 +33,51 @@ class LoiController extends AbstractController
     }
 
     #[Route('/loi/{id}', name: 'loi_show', requirements: ['id' => '[A-Z0-9]{20}'])]
-    public function show(string $id, LoiRepository $lois, AmendementRepository $amendements): Response
-    {
+    public function show(
+        string $id,
+        LoiRepository $lois,
+        AmendementRepository $amendements,
+        ProvenanceAnalyseur $analyseur,
+    ): Response {
         $loi = $lois->find($id);
 
         if ($loi === null) {
             throw $this->createNotFoundException(sprintf('Loi « %s » introuvable.', $id));
         }
 
+        $articles = $lois->findArticles($loi['id']);
         $dossier = $amendements->findDossierPourLoi($loi['num']);
+        $nbAmendements = null;
+        $provenance = [];
+
+        if ($dossier !== null) {
+            $nbAmendements = $amendements->countPourDossier($dossier['uid']);
+
+            $resultat = $analyseur->annoter($articles, $amendements->findAdoptesPourDossier($dossier['uid']));
+            $articles = $resultat['articles'];
+
+            foreach ($resultat['refs'] as $uid => $a) {
+                $provenance[$uid] = [
+                    'numero' => $a['numero'],
+                    'phase' => $a['phase'],
+                    'auteur' => $a['auteur'],
+                    'groupe' => $a['groupe'],
+                    'date' => $a['date_depot'],
+                    'division' => $a['division'],
+                    'statut' => $a['statut'],
+                    'classe' => $a['sort_classe'],
+                    'expose' => $a['expose_sommaire'],
+                    'url' => $this->generateUrl('loi_amendement', ['id' => $loi['id'], 'uid' => $uid]),
+                    'urlAn' => $a['url_an'],
+                ];
+            }
+        }
 
         return $this->render('loi/show.html.twig', [
             'loi' => $loi,
-            'articles' => $lois->findArticles($loi['id']),
-            'nbAmendements' => $dossier !== null ? $amendements->countPourDossier($dossier['uid']) : null,
+            'articles' => $articles,
+            'nbAmendements' => $nbAmendements,
+            'provenance' => $provenance,
         ]);
     }
 

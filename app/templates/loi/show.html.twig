@@ -97,6 +97,113 @@
         font-style: italic;
         color: var(--gris);
     }
+    p.legende-rayon-x {
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+        color: var(--gris);
+        background: #fef7e0;
+        border-left: 3px solid #e8b500;
+        padding: .6rem 1rem;
+    }
+    .alinea-amende {
+        background: #fef7e0;
+        cursor: pointer;
+        border-left: 3px solid #e8b500;
+        padding-left: .75rem;
+        transition: background .15s;
+    }
+    .alinea-amende:hover { background: #fdedb5; }
+    .alinea-amende::after {
+        content: attr(data-nb);
+        font-family: system-ui, sans-serif;
+        font-size: .7rem;
+        font-weight: 600;
+        color: #fff;
+        background: #e8b500;
+        border-radius: 2rem;
+        padding: 0 .45rem;
+        margin-left: .45rem;
+        vertical-align: super;
+    }
+    dialog#modale-amendements {
+        border: none;
+        border-top: 4px solid var(--bleu);
+        border-radius: .25rem;
+        box-shadow: 0 .5rem 2rem rgba(0,0,0,.25);
+        padding: 0;
+        width: min(46rem, 92vw);
+        max-height: 85vh;
+    }
+    dialog#modale-amendements::backdrop { background: rgba(0,0,0,.45); }
+    dialog#modale-amendements .entete {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid var(--bordure);
+        font-family: system-ui, sans-serif;
+    }
+    dialog#modale-amendements .entete h2 { font-size: 1rem; margin: 0; }
+    dialog#modale-amendements .entete button {
+        border: none;
+        background: none;
+        font-size: 1.3rem;
+        cursor: pointer;
+        color: var(--gris);
+    }
+    dialog#modale-amendements .corps {
+        padding: 1rem 1.5rem;
+        overflow-y: auto;
+        max-height: calc(85vh - 4rem);
+    }
+    .fiche-amendement {
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+    }
+    .fiche-amendement .titre-fiche {
+        font-family: system-ui, sans-serif;
+        font-weight: 600;
+        margin-bottom: .3rem;
+    }
+    .fiche-amendement .meta-fiche {
+        font-family: system-ui, sans-serif;
+        font-size: .8rem;
+        color: var(--gris);
+        margin-bottom: .6rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: .3rem .9rem;
+        align-items: center;
+    }
+    .fiche-amendement .badge {
+        display: inline-block;
+        font-size: .72rem;
+        padding: .1rem .5rem;
+        border-radius: 2rem;
+    }
+    .fiche-amendement .badge.adopte { background: #e3f5e1; color: #18753c; }
+    .fiche-amendement .expose {
+        font-size: .9rem;
+        border-top: 1px dashed var(--bordure);
+        padding-top: .6rem;
+        margin-top: .4rem;
+    }
+    .fiche-amendement .expose h3 {
+        font-family: system-ui, sans-serif;
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        color: var(--gris);
+        margin: 0 0 .3rem;
+    }
+    .fiche-amendement .liens-fiche {
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+        margin-top: .6rem;
+    }
+    .fiche-amendement .liens-fiche a { margin-right: 1rem; }
 {% endblock %}
 
 {% block body %}
@@ -125,6 +232,11 @@
         </details>
     {% endif %}
 
+    {% if provenance is not empty %}
+        <p class="legende-rayon-x">Rayon X : les passages surlignés proviennent d'amendements
+            adoptés à l'Assemblée nationale — cliquez dessus pour voir lesquels, et pourquoi.</p>
+    {% endif %}
+
     {% if articles is empty %}
         <p>Le contenu de cette loi n'est pas disponible dans la base.</p>
     {% else %}
@@ -138,5 +250,92 @@
 
     {% if loi.signataires %}
         <section class="signataires">{{ loi.signataires|raw }}</section>
+    {% endif %}
+
+    {% if provenance is not empty %}
+        <dialog id="modale-amendements">
+            <div class="entete">
+                <h2>D'où vient ce passage ?</h2>
+                <button type="button" aria-label="Fermer" onclick="this.closest('dialog').close()">✕</button>
+            </div>
+            <div class="corps" id="modale-contenu"></div>
+        </dialog>
+
+        <script type="application/json" id="donnees-provenance">{{ provenance|json_encode(constant('JSON_HEX_TAG'))|raw }}</script>
+        <script>
+            const amendements = JSON.parse(document.getElementById('donnees-provenance').textContent);
+            const modale = document.getElementById('modale-amendements');
+            const contenu = document.getElementById('modale-contenu');
+
+            document.querySelectorAll('.alinea-amende').forEach((p) => {
+                p.title = 'Cliquer pour voir les amendements à l\'origine de ce passage';
+                p.addEventListener('click', () => ouvrirModale(p.dataset.amendements.split(',')));
+            });
+
+            function ouvrirModale(uids) {
+                contenu.replaceChildren();
+
+                // Historique : commission d'abord, puis séance(s), par date de dépôt.
+                const fiches = uids.map((uid) => amendements[uid]).filter(Boolean)
+                    .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+                for (const a of fiches) {
+                    const fiche = document.createElement('article');
+                    fiche.className = 'fiche-amendement';
+
+                    const titre = document.createElement('div');
+                    titre.className = 'titre-fiche';
+                    titre.textContent = `Amendement n° ${a.numero} — ${a.phase}`;
+                    fiche.appendChild(titre);
+
+                    const meta = document.createElement('div');
+                    meta.className = 'meta-fiche';
+                    const badge = document.createElement('span');
+                    badge.className = `badge ${a.classe}`;
+                    badge.textContent = a.statut;
+                    meta.appendChild(badge);
+                    for (const info of [
+                        a.auteur + (a.groupe ? ` (${a.groupe})` : ''),
+                        a.division,
+                        a.date ? 'Déposé le ' + a.date.split('-').reverse().join('/') : null,
+                    ]) {
+                        if (info) {
+                            const span = document.createElement('span');
+                            span.textContent = info;
+                            meta.appendChild(span);
+                        }
+                    }
+                    fiche.appendChild(meta);
+
+                    if (a.expose) {
+                        const expose = document.createElement('div');
+                        expose.className = 'expose';
+                        expose.innerHTML = '<h3>Exposé sommaire</h3>' + a.expose;
+                        fiche.appendChild(expose);
+                    }
+
+                    const liens = document.createElement('div');
+                    liens.className = 'liens-fiche';
+                    const lienDetail = document.createElement('a');
+                    lienDetail.href = a.url;
+                    lienDetail.textContent = 'Détail et débat en séance →';
+                    const lienAn = document.createElement('a');
+                    lienAn.href = a.urlAn;
+                    lienAn.target = '_blank';
+                    lienAn.rel = 'noopener';
+                    lienAn.textContent = 'Fiche officielle ↗';
+                    liens.append(lienDetail, lienAn);
+                    fiche.appendChild(liens);
+
+                    contenu.appendChild(fiche);
+                }
+
+                modale.showModal();
+            }
+
+            modale.addEventListener('click', (e) => {
+                if (e.target === modale) modale.close();
+            });
+        </script>
     {% endif %}
 {% endblock %}

@@ -114,6 +114,52 @@ class AmendementRepository
     }
 
     /**
+     * Amendements adoptés d'un dossier, avec leur dispositif : c'est la
+     * matière première du « Rayon X » (rattacher chaque alinéa de la loi
+     * promulguée aux amendements qui l'ont produit).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function findAdoptesPourDossier(string $dossierUid): array
+    {
+        $rows = $this->connection->fetchAllAssociative(
+            <<<'SQL'
+            SELECT a.uid,
+                   a.legislature,
+                   a.data->'identification'->>'numeroLong' AS numero,
+                   a.data->'identification'->>'prefixeOrganeExamen' AS prefixe_organe,
+                   a.data->'cycleDeVie'->>'sort' AS sort,
+                   a.data->'cycleDeVie'->'etatDesTraitements'->'etat'->>'libelle' AS etat,
+                   a.data->'cycleDeVie'->'etatDesTraitements'->'sousEtat'->>'libelle' AS sous_etat,
+                   left(a.data->'cycleDeVie'->>'dateDepot', 10) AS date_depot,
+                   a.data->'pointeurFragmentTexte'->'division'->>'titre' AS division,
+                   a.data->>'texteLegislatifRef' AS texte_ref,
+                   substring(a.data->>'texteLegislatifRef' FROM '[0-9]+$') AS texte_num,
+                   a.data->'corps'->'contenuAuteur'->>'dispositif' AS dispositif,
+                   a.data->'corps'->'contenuAuteur'->>'exposeSommaire' AS expose_sommaire,
+                   a.data->'signataires'->'auteur'->>'typeAuteur' AS type_auteur,
+                   act.data->'etatCivil'->'ident'->>'civ' AS auteur_civ,
+                   act.data->'etatCivil'->'ident'->>'prenom' AS auteur_prenom,
+                   act.data->'etatCivil'->'ident'->>'nom' AS auteur_nom,
+                   grp.data->>'libelleAbrev' AS groupe,
+                   org.data->>'libelle' AS organe_examen
+            FROM assemblee.amendements a
+            LEFT JOIN assemblee.acteurs act ON act.uid = a.data->'signataires'->'auteur'->>'acteurRef'
+            LEFT JOIN assemblee.organes grp ON grp.uid = a.data->'signataires'->'auteur'->>'groupePolitiqueRef'
+            LEFT JOIN assemblee.organes org ON org.uid = substring(a.data->>'examenRef' FROM 'PO[0-9]+')
+            WHERE a.data->>'texteLegislatifRef' IN (
+                SELECT uid FROM assemblee.documents d WHERE d.data->>'dossierRef' = :dossier
+            )
+              AND a.data->'cycleDeVie'->>'sort' = 'Adopté'
+            ORDER BY a.data->>'texteLegislatifRef', a.data->>'triAmendement'
+            SQL,
+            ['dossier' => $dossierUid]
+        );
+
+        return array_map($this->hydrate(...), $rows);
+    }
+
+    /**
      * Détail complet d'un amendement (dispositif, exposé sommaire, séance de discussion).
      */
     public function findOne(string $uid): ?array
@@ -161,6 +207,10 @@ class AmendementRepository
 
         $row['statut'] = $this->libelleStatut($row);
         $row['sort_classe'] = $this->classerStatut($row);
+
+        if (array_key_exists('organe_examen', $row)) {
+            $row['phase'] = $this->labelPhase($row['organe_examen']);
+        }
 
         // Page officielle de l'amendement, ex. …/dyn/17/amendements/0907/CION_LOIS/CL151
         $row['url_an'] = sprintf(
