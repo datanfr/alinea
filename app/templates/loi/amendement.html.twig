@@ -1,0 +1,154 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Amendement n° {{ a.numero }} — {{ loi.num ? 'Loi n° ' ~ loi.num : loi.titre }} — Alinéa{% endblock %}
+
+{% block styles %}
+    a.retour {
+        font-family: system-ui, sans-serif;
+        font-size: .9rem;
+        text-decoration: none;
+    }
+    header.amendement {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-top: 4px solid var(--bleu);
+        border-radius: .25rem;
+        padding: 1.25rem 2rem;
+        margin: 1rem 0 1.5rem;
+    }
+    header.amendement h1 {
+        font-size: 1.3rem;
+        margin: 0 0 .3rem;
+    }
+    header.amendement .loi-titre {
+        font-size: .95rem;
+        color: var(--gris);
+        margin: 0 0 .75rem;
+    }
+    header.amendement .meta {
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+        color: var(--gris);
+        display: flex;
+        flex-wrap: wrap;
+        gap: .4rem 1.25rem;
+        align-items: center;
+    }
+    .badge {
+        display: inline-block;
+        font-family: system-ui, sans-serif;
+        font-size: .75rem;
+        padding: .15rem .6rem;
+        border-radius: 2rem;
+        white-space: nowrap;
+    }
+    .badge.adopte { background: #e3f5e1; color: #18753c; }
+    .badge.rejete { background: #fde3e3; color: #ce0500; }
+    .badge.irrecevable { background: #fff0e4; color: #b34000; }
+    .badge.autre { background: #eee; color: var(--gris); }
+    .badge.attente { background: #e8edff; color: var(--bleu); }
+    section.bloc {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+        padding: 1.25rem 2rem;
+        margin-bottom: 1.25rem;
+    }
+    section.bloc h2 {
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        color: var(--bleu);
+        border-bottom: 1px solid var(--bordure);
+        padding-bottom: .5rem;
+        margin: 0 0 .75rem;
+    }
+    section.debat .seance {
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+        color: var(--gris);
+        margin-bottom: 1rem;
+    }
+    .parole { margin-bottom: 1rem; }
+    .parole .orateur {
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+        font-weight: 600;
+        color: var(--bleu);
+    }
+    .parole .orateur small { font-weight: normal; color: var(--gris); }
+    .parole p { margin: .2rem 0 0; }
+    .parole.mention {
+        border-left: 3px solid var(--bleu);
+        padding-left: 1rem;
+    }
+    .parole.didascalie p { font-style: italic; color: var(--gris); }
+    p.indisponible {
+        font-family: system-ui, sans-serif;
+        font-size: .9rem;
+        color: var(--gris);
+        background: var(--fond);
+        border-left: 3px solid var(--bordure);
+        padding: .6rem 1rem;
+    }
+{% endblock %}
+
+{% block body %}
+    <a class="retour" href="{{ path('loi_amendements', {id: loi.id}) }}">← Retour aux amendements de la loi</a>
+
+    <header class="amendement">
+        <h1>Amendement n° {{ a.numero }}</h1>
+        <p class="loi-titre">{{ loi.titre ?? loi.id }}</p>
+        <div class="meta">
+            <span class="badge {{ a.sort_classe }}">{{ a.statut }}</span>
+            <span>{{ a.auteur }}{% if a.groupe %} ({{ a.groupe }}){% endif %}</span>
+            {% if a.division %}<span>{{ a.division }}</span>{% endif %}
+            {% if a.date_depot %}<span>Déposé le {{ a.date_depot|date('d/m/Y') }}</span>{% endif %}
+            <span>{{ a.organe_examen starts with 'Commission' ? a.organe_examen : 'Séance publique' }}</span>
+            <a href="{{ a.url_an }}" target="_blank" rel="noopener">Fiche officielle ↗</a>
+        </div>
+    </header>
+
+    {% if a.dispositif %}
+        <section class="bloc">
+            <h2>Dispositif</h2>
+            <div>{{ a.dispositif|raw }}</div>
+        </section>
+    {% endif %}
+
+    {% if a.expose_sommaire %}
+        <section class="bloc">
+            <h2>Exposé sommaire</h2>
+            <div>{{ a.expose_sommaire|raw }}</div>
+        </section>
+    {% endif %}
+
+    <section class="bloc debat">
+        <h2>Le débat en séance (compte rendu intégral)</h2>
+        {% if debat %}
+            <p class="seance">
+                {{ debat.compte_rendu.num_seance_jour ?? '' }} séance du {{ debat.compte_rendu.date_seance|date('d/m/Y') }}
+                — {{ debat.paroles|length }} intervention{{ debat.paroles|length > 1 ? 's' }}
+                · <a href="{{ debat.compte_rendu.url_an }}" target="_blank" rel="noopener">Compte rendu intégral ↗</a>
+            </p>
+            {% for parole in debat.paroles %}
+                <div class="parole{{ parole.mentionne ? ' mention' }}{{ parole.orateur_nom is null ? ' didascalie' }}">
+                    {% if parole.orateur_nom %}
+                        <div class="orateur">{{ parole.orateur_nom }}{% if parole.orateur_qualite %} <small>{{ parole.orateur_qualite }}</small>{% endif %}</div>
+                    {% endif %}
+                    <p>{{ parole.texte_brut|nl2br }}</p>
+                </div>
+            {% endfor %}
+        {% elseif a.seance_ref %}
+            <p class="indisponible">Cet amendement est rattaché à une séance mais n'apparaît pas
+                dans le compte rendu (amendement non soutenu, retiré avant discussion ou discuté
+                en groupe sans mention individuelle).</p>
+        {% elseif a.organe_examen starts with 'Commission' %}
+            <p class="indisponible">Amendement examiné en commission : les comptes rendus des
+                commissions ne sont pas disponibles dans la base (seule la séance publique est couverte).</p>
+        {% else %}
+            <p class="indisponible">Aucune séance de discussion n'est rattachée à cet amendement.</p>
+        {% endif %}
+    </section>
+{% endblock %}

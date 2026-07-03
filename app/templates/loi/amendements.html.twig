@@ -1,0 +1,205 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Amendements — {{ loi.num ? 'Loi n° ' ~ loi.num : loi.titre }} — Alinéa{% endblock %}
+
+{% block styles %}
+    a.retour {
+        font-family: system-ui, sans-serif;
+        font-size: .9rem;
+        text-decoration: none;
+    }
+    header.loi {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-top: 4px solid var(--bleu);
+        border-radius: .25rem;
+        padding: 1.25rem 2rem;
+        margin: 1rem 0 1.5rem;
+    }
+    header.loi h1 {
+        font-size: 1.15rem;
+        margin: 0;
+        line-height: 1.4;
+    }
+    header.loi .dossier {
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+        color: var(--gris);
+        margin-top: .3rem;
+    }
+    .stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .75rem;
+        font-family: system-ui, sans-serif;
+        font-size: .9rem;
+        margin-bottom: 1.5rem;
+    }
+    .stats span {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-radius: 2rem;
+        padding: .3rem .9rem;
+    }
+    .stats b { font-weight: 600; }
+    .filtres {
+        display: flex;
+        gap: .5rem;
+        margin-bottom: 1.5rem;
+        font-family: system-ui, sans-serif;
+    }
+    .filtres input {
+        flex: 1;
+        padding: .55rem .9rem;
+        font-size: .95rem;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+    }
+    .filtres select {
+        padding: .55rem .9rem;
+        font-size: .95rem;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+        background: #fff;
+    }
+    section.phase { margin-bottom: 2.5rem; }
+    section.phase h2 {
+        font-size: 1.05rem;
+        border-bottom: 2px solid var(--bleu);
+        padding-bottom: .4rem;
+    }
+    section.phase h2 small {
+        font-family: system-ui, sans-serif;
+        font-weight: normal;
+        font-size: .8rem;
+        color: var(--gris);
+        margin-left: .5rem;
+    }
+    table.amendements {
+        width: 100%;
+        border-collapse: collapse;
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+    }
+    table.amendements th, table.amendements td {
+        text-align: left;
+        padding: .5rem .75rem;
+        border-bottom: 1px solid #eee;
+        vertical-align: top;
+    }
+    table.amendements th {
+        background: #f0f0ff;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    table.amendements td.num { white-space: nowrap; font-weight: 600; }
+    table.amendements a { text-decoration: none; }
+    .badge {
+        display: inline-block;
+        font-size: .75rem;
+        padding: .1rem .55rem;
+        border-radius: 2rem;
+        white-space: nowrap;
+    }
+    .badge.adopte { background: #e3f5e1; color: #18753c; }
+    .badge.rejete { background: #fde3e3; color: #ce0500; }
+    .badge.irrecevable { background: #fff0e4; color: #b34000; }
+    .badge.autre { background: #eee; color: var(--gris); }
+    .badge.attente { background: #e8edff; color: var(--bleu); }
+{% endblock %}
+
+{% block body %}
+    <a class="retour" href="{{ path('loi_show', {id: loi.id}) }}">← Retour au texte de la loi</a>
+
+    <header class="loi">
+        <h1>Amendements — {{ loi.titre ?? loi.id }}</h1>
+        {% if dossier %}
+            <div class="dossier">Dossier législatif AN : {{ dossier.titre }} ({{ dossier.uid }}, {{ dossier.legislature }}ᵉ législature)</div>
+        {% endif %}
+    </header>
+
+    {% if dossier is null %}
+        <p>Aucun dossier législatif de l'Assemblée nationale n'a été trouvé pour cette loi
+            (seules les législatures couvertes par l'open data AN sont disponibles).</p>
+    {% elseif phases is empty %}
+        <p>Aucun amendement n'est enregistré pour ce dossier.</p>
+    {% else %}
+        <div class="stats">
+            <span><b>{{ total|format_number(locale='fr') }}</b> amendements</span>
+            <span class="badge adopte">Adoptés : {{ sorts.adopte }}</span>
+            <span class="badge rejete">Rejetés : {{ sorts.rejete }}</span>
+            <span class="badge irrecevable">Irrecevables : {{ sorts.irrecevable }}</span>
+            <span class="badge autre">Retirés, tombés, non soutenus… : {{ sorts.autre }}</span>
+            {% if sorts.attente > 0 %}<span class="badge attente">En cours : {{ sorts.attente }}</span>{% endif %}
+        </div>
+
+        <div class="filtres">
+            <input type="search" id="filtre-texte" placeholder="Filtrer par n°, article, auteur, groupe…" aria-label="Filtrer les amendements">
+            <select id="filtre-sort" aria-label="Filtrer par sort">
+                <option value="">Tous les sorts</option>
+                <option value="adopte">Adoptés</option>
+                <option value="rejete">Rejetés</option>
+                <option value="irrecevable">Irrecevables</option>
+                <option value="autre">Retirés, tombés, non soutenus…</option>
+            </select>
+        </div>
+
+        {% for phase in phases %}
+            <section class="phase">
+                <h2>{{ phase.label }} <small>texte n° {{ phase.texte_num }} · {{ phase.amendements|length }} amendements</small></h2>
+                <table class="amendements">
+                    <thead>
+                        <tr>
+                            <th>N°</th>
+                            <th>Article visé</th>
+                            <th>Auteur</th>
+                            <th>Groupe</th>
+                            <th>Déposé le</th>
+                            <th>Sort</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for a in phase.amendements %}
+                            <tr data-sort="{{ a.sort_classe }}">
+                                <td class="num">
+                                    <a href="{{ path('loi_amendement', {id: loi.id, uid: a.uid}) }}" title="Détail et débat en séance">{{ a.numero }}</a>
+                                    <a href="{{ a.url_an }}" target="_blank" rel="noopener" title="Voir sur assemblee-nationale.fr">↗</a>
+                                </td>
+                                <td>{{ a.division ?? '—' }}</td>
+                                <td>{{ a.auteur }}</td>
+                                <td>{{ a.groupe ?? '—' }}</td>
+                                <td>{{ a.date_depot ? a.date_depot|date('d/m/Y') : '—' }}</td>
+                                <td><span class="badge {{ a.sort_classe }}">{{ a.statut }}</span></td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+        {% endfor %}
+
+        <script>
+            const filtreTexte = document.getElementById('filtre-texte');
+            const filtreSort = document.getElementById('filtre-sort');
+
+            function filtrer() {
+                const texte = filtreTexte.value.trim().toLowerCase();
+                const sort = filtreSort.value;
+                document.querySelectorAll('table.amendements tbody tr').forEach((tr) => {
+                    const okTexte = texte === '' || tr.textContent.toLowerCase().includes(texte);
+                    const okSort = sort === '' || tr.dataset.sort === sort;
+                    tr.style.display = okTexte && okSort ? '' : 'none';
+                });
+                document.querySelectorAll('section.phase').forEach((section) => {
+                    const visible = section.querySelectorAll('tbody tr:not([style*="none"])').length;
+                    section.style.display = visible > 0 ? '' : 'none';
+                });
+            }
+
+            filtreTexte.addEventListener('input', filtrer);
+            filtreSort.addEventListener('change', filtrer);
+        </script>
+    {% endif %}
+{% endblock %}

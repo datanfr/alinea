@@ -1,5 +1,15 @@
 doctrine:
     dbal:
-        url: '%env(resolve:DATABASE_URL)%'
-        server_version: '17'
-        profiling_collect_backtrace: '%kernel.debug%'
+        default_connection: default
+        connections:
+            # Base « canutes » : open data Légifrance + Assemblée nationale (PostgreSQL).
+            default:
+                url: '%env(resolve:DATABASE_URL)%'
+                server_version: '17'
+                profiling_collect_backtrace: '%kernel.debug%'
+            # Base « analysedebat » du projet PoliticAnalysis : comptes rendus
+            # de séance publique parsés en paroles individuelles (MySQL).
+            debats:
+                url: '%env(resolve:DEBATS_DATABASE_URL)%'
+                server_version: '8.0.45'
+                profiling_collect_backtrace: '%kernel.debug%'

@@ -27,6 +27,27 @@
         color: var(--gris);
     }
     header.loi .meta a { margin-left: .5rem; }
+    a.amendements {
+        display: inline-block;
+        font-family: system-ui, sans-serif;
+        font-size: .9rem;
+        color: #fff;
+        background: var(--bleu);
+        text-decoration: none;
+        padding: .5rem 1rem;
+        border-radius: .25rem;
+        margin-top: .9rem;
+    }
+    a.amendements:hover { background: var(--bleu-hover); color: #fff; }
+    p.sans-amendement {
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+        color: var(--gris);
+        background: var(--fond);
+        border-left: 3px solid var(--bordure);
+        padding: .5rem .9rem;
+        margin: .9rem 0 0;
+    }
     details.visas {
         margin: 0 0 2rem;
         font-size: .95rem;
@@ -87,6 +108,14 @@
             {% if loi.origine_publi %}{{ loi.origine_publi }}{% endif %}
             {% if loi.eli %}<a href="{{ loi.eli }}" target="_blank" rel="noopener">Voir sur Légifrance ↗</a>{% endif %}
         </div>
+        {% if nbAmendements %}
+            <a class="amendements" href="{{ path('loi_amendements', {id: loi.id}) }}">
+                Voir les {{ nbAmendements|format_number(locale='fr') }} amendements →
+            </a>
+        {% elseif nbAmendements is same as(0) %}
+            <p class="sans-amendement">Aucun amendement examiné à l'Assemblée nationale pour ce texte
+                (adopté conforme — les amendements éventuels ont été déposés au Sénat).</p>
+        {% endif %}
     </header>
 
     {% if loi.visas %}
