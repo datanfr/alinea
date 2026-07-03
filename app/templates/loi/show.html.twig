@@ -1,0 +1,113 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}{{ loi.num ? 'Loi n° ' ~ loi.num : loi.titre }} — Alinéa{% endblock %}
+
+{% block styles %}
+    a.retour {
+        font-family: system-ui, sans-serif;
+        font-size: .9rem;
+        text-decoration: none;
+    }
+    header.loi {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-top: 4px solid var(--bleu);
+        border-radius: .25rem;
+        padding: 1.5rem 2rem;
+        margin: 1rem 0 2rem;
+    }
+    header.loi h1 {
+        font-size: 1.4rem;
+        margin: 0 0 .5rem;
+        line-height: 1.4;
+    }
+    header.loi .meta {
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+        color: var(--gris);
+    }
+    header.loi .meta a { margin-left: .5rem; }
+    details.visas {
+        margin: 0 0 2rem;
+        font-size: .95rem;
+    }
+    details.visas summary {
+        font-family: system-ui, sans-serif;
+        font-size: .9rem;
+        color: var(--bleu);
+        cursor: pointer;
+    }
+    details.visas .contenu {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+        padding: 1rem 1.5rem;
+        margin-top: .5rem;
+        color: var(--gris);
+    }
+    article.article {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+        padding: 1.25rem 2rem;
+        margin-bottom: 1rem;
+    }
+    article.article h2 {
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        color: var(--bleu);
+        border-bottom: 1px solid var(--bordure);
+        padding-bottom: .5rem;
+        margin: 0 0 .75rem;
+    }
+    article.article blockquote {
+        border-left: 3px solid var(--bordure);
+        margin-left: 0;
+        padding-left: 1rem;
+    }
+    section.signataires {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+        padding: 1.25rem 2rem;
+        margin: 2rem 0;
+        font-style: italic;
+        color: var(--gris);
+    }
+{% endblock %}
+
+{% block body %}
+    <a class="retour" href="{{ path('loi_index') }}">← Retour à la liste des lois</a>
+
+    <header class="loi">
+        <h1>{{ loi.titre ?? loi.id }}</h1>
+        <div class="meta">
+            {% if loi.origine_publi %}{{ loi.origine_publi }}{% endif %}
+            {% if loi.eli %}<a href="{{ loi.eli }}" target="_blank" rel="noopener">Voir sur Légifrance ↗</a>{% endif %}
+        </div>
+    </header>
+
+    {% if loi.visas %}
+        <details class="visas">
+            <summary>Visas et préambule</summary>
+            <div class="contenu">{{ loi.visas|raw }}</div>
+        </details>
+    {% endif %}
+
+    {% if articles is empty %}
+        <p>Le contenu de cette loi n'est pas disponible dans la base.</p>
+    {% else %}
+        {% for article in articles %}
+            <article class="article" id="article-{{ article.num }}">
+                <h2>Article {{ article.num }}</h2>
+                <div>{{ article.contenu|raw }}</div>
+            </article>
+        {% endfor %}
+    {% endif %}
+
+    {% if loi.signataires %}
+        <section class="signataires">{{ loi.signataires|raw }}</section>
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="fr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>{% block title %}Alinéa{% endblock %}</title>
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 128 128%22><text y=%221.2em%22 font-size=%2296%22>§</text></svg>">
+        <style>
+            :root {
+                --bleu: #000091;
+                --bleu-hover: #1212ff;
+                --rouge: #e1000f;
+                --encre: #1e1e1e;
+                --gris: #666;
+                --fond: #f6f6f6;
+                --bordure: #ddd;
+            }
+            * { box-sizing: border-box; }
+            body {
+                margin: 0;
+                font-family: Georgia, 'Times New Roman', serif;
+                color: var(--encre);
+                background: var(--fond);
+                line-height: 1.6;
+            }
+            header.site {
+                background: #fff;
+                border-bottom: 3px solid var(--bleu);
+                padding: 1rem 1.5rem;
+            }
+            header.site .inner {
+                max-width: 60rem;
+                margin: 0 auto;
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+            }
+            header.site img { height: 3rem; }
+            header.site .baseline {
+                font-family: system-ui, sans-serif;
+                font-size: .85rem;
+                color: var(--gris);
+            }
+            main {
+                max-width: 60rem;
+                margin: 2rem auto;
+                padding: 0 1.5rem;
+            }
+            a { color: var(--bleu); }
+            a:hover { color: var(--bleu-hover); }
+            {% block styles %}{% endblock %}
+        </style>
+    </head>
+    <body>
+        <header class="site">
+            <div class="inner">
+                <a href="{{ path('loi_index') }}"><img src="{{ asset('images/logo.png') }}" alt="Alinéa"></a>
+                <span class="baseline">Reconstituer l'intention du législateur</span>
+            </div>
+        </header>
+        <main>
+            {% block body %}{% endblock %}
+        </main>
+    </body>
+</html>

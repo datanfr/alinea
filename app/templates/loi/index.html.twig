@@ -1,0 +1,114 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Alinéa — Les lois{% endblock %}
+
+{% block styles %}
+    form.recherche {
+        display: flex;
+        gap: .5rem;
+        margin-bottom: 1.5rem;
+        font-family: system-ui, sans-serif;
+    }
+    form.recherche input[type="search"] {
+        flex: 1;
+        padding: .65rem .9rem;
+        font-size: 1rem;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+    }
+    form.recherche button {
+        padding: .65rem 1.4rem;
+        font-size: 1rem;
+        color: #fff;
+        background: var(--bleu);
+        border: none;
+        border-radius: .25rem;
+        cursor: pointer;
+    }
+    form.recherche button:hover { background: var(--bleu-hover); }
+    p.compteur {
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+        color: var(--gris);
+        margin: 0 0 1rem;
+    }
+    ul.lois {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+    ul.lois li {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-left: 4px solid var(--bleu);
+        border-radius: .25rem;
+        margin-bottom: .75rem;
+    }
+    ul.lois a {
+        display: block;
+        padding: .9rem 1.2rem;
+        text-decoration: none;
+        color: var(--encre);
+    }
+    ul.lois a:hover { background: #f0f0ff; }
+    ul.lois .meta {
+        font-family: system-ui, sans-serif;
+        font-size: .8rem;
+        color: var(--bleu);
+        display: flex;
+        gap: 1rem;
+        margin-bottom: .2rem;
+    }
+    nav.pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 1.5rem;
+        margin: 2rem 0;
+        font-family: system-ui, sans-serif;
+    }
+{% endblock %}
+
+{% block body %}
+    <h1>Les lois publiées au Journal officiel</h1>
+
+    <form class="recherche" action="{{ path('loi_index') }}" method="get">
+        <input type="search" name="q" value="{{ query }}" placeholder="Rechercher une loi (ex. : narcotrafic, sécurité, environnement…)" aria-label="Rechercher une loi">
+        <button type="submit">Rechercher</button>
+    </form>
+
+    <p class="compteur">
+        {{ total }} loi{{ total > 1 ? 's' }}
+        {%- if query %} pour « {{ query }} »{% endif %}
+    </p>
+
+    {% if lois is empty %}
+        <p>Aucune loi ne correspond à cette recherche.</p>
+    {% else %}
+        <ul class="lois">
+            {% for loi in lois %}
+                <li>
+                    <a href="{{ path('loi_show', {id: loi.id}) }}">
+                        <div class="meta">
+                            {% if loi.num %}<span>Loi n° {{ loi.num }}</span>{% endif %}
+                            {% if loi.date_fr %}<span>{{ loi.date_fr }}</span>{% endif %}
+                        </div>
+                        {{ loi.titre ?? loi.id }}
+                    </a>
+                </li>
+            {% endfor %}
+        </ul>
+
+        {% if pages > 1 %}
+            <nav class="pagination">
+                {% if page > 1 %}
+                    <a href="{{ path('loi_index', {q: query, page: page - 1}) }}">← Précédent</a>
+                {% endif %}
+                <span>Page {{ page }} / {{ pages }}</span>
+                {% if page < pages %}
+                    <a href="{{ path('loi_index', {q: query, page: page + 1}) }}">Suivant →</a>
+                {% endif %}
+            </nav>
+        {% endif %}
+    {% endif %}
+{% endblock %}
