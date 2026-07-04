@@ -10,6 +10,7 @@
         coherence: 'Cohérence', fond: 'Fond',
     } %}
     <article class="carte-amendement classe-{{ a.classe }}"
+             {% if a.uid is defined %}id="amdt-{{ a.uid }}"{% endif %}
              data-sort="{{ a.classe }}"
              data-impact="{{ a.scoreImpactIa ?? -1 }}"
              data-categorie="{{ a.categorieIa ?? '' }}"
@@ -92,6 +93,93 @@
         padding: .5rem .9rem;
         margin: .9rem 0 0;
     }
+    /* Encadré « Au cœur du débat » : les amendements les plus discutés. */
+    .encadre-debat {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-left: 4px solid #e8b500;
+        border-radius: .25rem;
+        padding: 1.1rem 1.5rem 1.3rem;
+        margin: 0 0 2rem;
+        font-family: system-ui, sans-serif;
+    }
+    .encadre-debat h2 {
+        font-size: .95rem;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        color: #a97e00;
+        margin: 0 0 .3rem;
+    }
+    .encadre-debat .encadre-intro {
+        font-size: .85rem;
+        color: var(--gris);
+        margin: 0 0 .9rem;
+        max-width: 48rem;
+    }
+    .liste-debat {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        counter-reset: debat;
+        display: flex;
+        flex-direction: column;
+        gap: .5rem;
+    }
+    .liste-debat li {
+        counter-increment: debat;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: .5rem .8rem;
+        padding: .5rem .7rem .5rem 2.2rem;
+        position: relative;
+        background: var(--fond);
+        border-radius: .25rem;
+    }
+    .liste-debat li::before {
+        content: counter(debat);
+        position: absolute;
+        left: .7rem;
+        top: .5rem;
+        font-variant-numeric: tabular-nums;
+        font-weight: 700;
+        color: #e8b500;
+    }
+    .liste-debat .lien-ancre {
+        display: inline-flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: .5rem;
+        text-decoration: none;
+        color: var(--encre);
+    }
+    .liste-debat .lien-ancre:hover .debat-num { text-decoration: underline; }
+    .liste-debat .badge {
+        font-size: .72rem;
+        padding: .1rem .55rem;
+        border-radius: 2rem;
+        white-space: nowrap;
+        transform: translateY(-1px);
+    }
+    .liste-debat .badge.rejete { background: #fde3e3; color: var(--rouge); }
+    .liste-debat .badge.adopte { background: #e3f5e1; color: #18753c; }
+    .liste-debat .debat-num { font-weight: 600; white-space: nowrap; }
+    .liste-debat .debat-auteur { font-size: .85rem; color: var(--gris); }
+    .liste-debat .debat-detail {
+        margin-left: auto;
+        font-size: .82rem;
+        white-space: nowrap;
+        text-decoration: none;
+    }
+    /* Cible d'une ancre cliquée depuis l'encadré : flash de mise en évidence. */
+    .surligne-cible {
+        animation: flash-cible 2s ease-out;
+    }
+    @keyframes flash-cible {
+        0%, 25% { box-shadow: 0 0 0 3px #e8b500, 0 2px 10px rgba(0,0,0,.15); }
+        100% { box-shadow: 0 0 0 0 transparent; }
+    }
+
     details.visas {
         margin: 0 0 2rem;
         font-size: .95rem;
@@ -287,6 +375,49 @@
     .alinea-amende.estompe::after { display: none; }
     .note[hidden], .carte-amendement[hidden], .bloc-division[hidden],
     .fiche-amendement[hidden] { display: none !important; }
+    /* Navigation flottante entre les passages amendés (Rayon X). */
+    .nav-amendements {
+        position: fixed;
+        right: 1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: .35rem;
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-radius: 2rem;
+        box-shadow: 0 2px 12px rgba(0,0,0,.18);
+        padding: .4rem .3rem;
+    }
+    .nav-amendements[hidden] { display: none; }
+    .nav-amendements button {
+        width: 2rem;
+        height: 2rem;
+        border: none;
+        border-radius: 50%;
+        background: var(--bleu);
+        color: #fff;
+        font-size: .85rem;
+        line-height: 1;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .nav-amendements button:hover { background: var(--bleu-hover); }
+    .nav-amendements .nav-compteur {
+        font-family: system-ui, sans-serif;
+        font-size: .68rem;
+        color: var(--gris);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+    @media (max-width: 60rem) {
+        .nav-amendements { right: .5rem; }
+    }
     p.legende-rayon-x {
         font-family: system-ui, sans-serif;
         font-size: .85rem;
@@ -547,6 +678,26 @@
         {% endif %}
     </header>
 
+    {% if topDebat is not empty %}
+        <aside class="encadre-debat">
+            <h2>Au cœur du débat</h2>
+            <p class="encadre-intro">Les amendements qui ont suscité les échanges les plus nourris en
+                séance publique, mesurés à l'ampleur de leur discussion dans le compte rendu intégral.</p>
+            <ol class="liste-debat">
+                {% for d in topDebat %}
+                    <li>
+                        <a class="lien-ancre classe-{{ d.classe }}" href="#{{ d.ancre }}" data-ancre="{{ d.ancre }}">
+                            <span class="badge {{ d.classe }}">{{ d.statut }}</span>
+                            <span class="debat-num">n° {{ d.numero }}</span>
+                            {% if d.auteur and d.auteur != '—' %}<span class="debat-auteur">{{ d.auteur }}{% if d.groupe %} ({{ d.groupe }}){% endif %}</span>{% endif %}
+                        </a>
+                        <a class="debat-detail" href="{{ d.url }}">Détail et débat →</a>
+                    </li>
+                {% endfor %}
+            </ol>
+        </aside>
+    {% endif %}
+
     {% if loi.visas %}
         <details class="visas">
             <summary>Visas et préambule</summary>
@@ -641,6 +792,14 @@
         {% endif %}
     </div>
 
+    {% if provenance is not empty %}
+        <nav class="nav-amendements" id="nav-amendements" aria-label="Naviguer entre les passages amendés" hidden>
+            <button type="button" id="nav-prec" aria-label="Passage amendé précédent" title="Passage amendé précédent">▲</button>
+            <span class="nav-compteur" id="nav-compteur" aria-live="polite"></span>
+            <button type="button" id="nav-suiv" aria-label="Passage amendé suivant" title="Passage amendé suivant">▼</button>
+        </nav>
+    {% endif %}
+
     {% if autresParDivision is not empty %}
         <section class="hors-texte">
             <h2 class="titre-hors-texte">Amendements hors du texte promulgué <span class="compte">{{ autresTotal }}</span></h2>
@@ -703,6 +862,10 @@
 
             // Une note par passage surligné : elle contient le ou les amendements
             // cités par data-amendements, dans l'ordre chronologique de dépôt.
+            // Ancre #amdt-<uid> posée une seule fois par amendement (un même
+            // amendement peut annoter plusieurs passages) : cible des liens de
+            // l'encadré « Au cœur du débat » pour les amendements sans carte.
+            const ancresPosees = new Set();
             const paires = [];
             passages.forEach((passage, i) => {
                 passage.id = passage.id || 'al-' + i;
@@ -726,7 +889,14 @@
                 tete.appendChild(label);
                 note.appendChild(tete);
 
-                fiches.forEach((a) => note.appendChild(construireFiche(a)));
+                fiches.forEach((a) => {
+                    const fiche = construireFiche(a);
+                    if (!ancresPosees.has(a.uid)) {
+                        fiche.id = 'amdt-' + a.uid;
+                        ancresPosees.add(a.uid);
+                    }
+                    note.appendChild(fiche);
+                });
                 colonne.appendChild(note);
 
                 paires.push({ passage, note });
@@ -771,8 +941,56 @@
                 colonne.style.minHeight = curseur + 'px';
             }
 
+            // Flèches flottantes : saut au passage amendé suivant / précédent,
+            // en ignorant ceux masqués par les filtres (classe « estompe ».)
+            const navBarre = document.getElementById('nav-amendements');
+            const navCompteur = document.getElementById('nav-compteur');
+
+            function passagesVisibles() {
+                return passages.filter((p) => !p.classList.contains('estompe'));
+            }
+
+            function majNav() {
+                const total = passagesVisibles().length;
+                navBarre.hidden = total === 0;
+                navCompteur.textContent = total;
+            }
+
+            function naviguer(direction) {
+                const visibles = passagesVisibles();
+                if (visibles.length === 0) return;
+
+                // On avance à partir du passage actif ; à défaut (premier appel),
+                // on part de la position de lecture (ligne à 30 % de la hauteur).
+                const actif = document.querySelector('.alinea-amende.actif:not(.estompe)');
+                let idx = actif ? visibles.indexOf(actif) : -1;
+
+                if (idx === -1) {
+                    const ligne = window.innerHeight * 0.3;
+                    if (direction > 0) {
+                        idx = visibles.findIndex((p) => p.getBoundingClientRect().top > ligne + 4);
+                        if (idx === -1) idx = 0;
+                    } else {
+                        const avant = visibles.filter((p) => p.getBoundingClientRect().top < ligne - 4);
+                        idx = avant.length ? visibles.indexOf(avant[avant.length - 1]) : visibles.length - 1;
+                    }
+                } else {
+                    idx = (idx + direction + visibles.length) % visibles.length;
+                }
+
+                const cible = visibles[idx];
+                const paire = paires.find((x) => x.passage === cible);
+                if (paire) activer(paire.passage, paire.note);
+                cible.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                navCompteur.textContent = (idx + 1) + ' / ' + visibles.length;
+            }
+
+            document.getElementById('nav-suiv').addEventListener('click', () => naviguer(1));
+            document.getElementById('nav-prec').addEventListener('click', () => naviguer(-1));
+            majNav();
+
             // Exposé pour la barre de filtres (sort, impact, catégorie).
-            window.alinea = { paires, positionnerNotes };
+            window.alinea = { paires, positionnerNotes, majNav };
 
             positionnerNotes();
             window.addEventListener('load', positionnerNotes);
@@ -850,6 +1068,7 @@
                             passage.classList.toggle('estompe', visibles === 0);
                         }
                         window.alinea.positionnerNotes();
+                        window.alinea.majNav?.();
                         totalAffiche += uidsVisibles.size;
                     }
 
@@ -897,6 +1116,27 @@
                 // Compteur initial (aucun filtre actif).
                 appliquer();
             })();
+        </script>
+    {% endif %}
+
+    {% if topDebat is not empty %}
+        <script>
+            // Liens de l'encadré « Au cœur du débat » : défilement vers
+            // l'amendement dans la page (carte ou note de marge). S'il est replié
+            // sous un article (<details>), on l'ouvre d'abord.
+            document.querySelectorAll('.encadre-debat .lien-ancre').forEach((lien) => {
+                lien.addEventListener('click', (e) => {
+                    const cible = document.getElementById(lien.dataset.ancre);
+                    if (!cible) return; // ancre absente : on laisse le comportement par défaut
+                    e.preventDefault();
+                    const repli = cible.closest('details');
+                    if (repli) repli.open = true;
+                    cible.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    cible.classList.remove('surligne-cible');
+                    void cible.offsetWidth; // relance l'animation si déjà jouée
+                    cible.classList.add('surligne-cible');
+                });
+            });
         </script>
     {% endif %}
 {% endblock %}

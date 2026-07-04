@@ -323,6 +323,87 @@ class DebatRepository
     }
 
     /**
+     * Les amendements d'un dossier les plus discutés en séance publique,
+     * classés par ampleur du débat — sans IA, uniquement à partir des CRI.
+     *
+     * Le signal : la taille de la fenêtre de discussion. On repère dans chaque
+     * compte rendu les paroles qui citent le numéro d'un amendement en contexte
+     * (« n° 556 », « l'amendement 556 » — le regex exige le marqueur pour ne pas
+     * confondre avec « article 1er » ou « 1° »), on regroupe ces mentions en
+     * grappes contiguës (comme grappePrincipale), on garde la plus dense, et
+     * l'écart entre première et dernière mention de cette grappe mesure la
+     * longueur de l'échange. Les amendements cités une seule fois (nb_cit < 2)
+     * sont écartés : sans fenêtre, il n'y a pas de « débat » à montrer.
+     *
+     * Requête lourde (jointure regex sur cr_parole) : à mettre en cache par
+     * dossier côté appelant, le résultat ne changeant qu'au réimport des CRI.
+     *
+     * @return list<array{uid: string, numero: string, sort: string, nb_cit: int, span: int}>
+     */
+    public function classerParDebat(string $dossierUid, int $limite = 3): array
+    {
+        $rows = $this->connection->fetchAllAssociative(
+            <<<SQL
+            WITH amdts_cr AS (
+                SELECT a.uid,
+                       a.data->'identification'->>'numeroLong' AS numero,
+                       substring(a.data->'identification'->>'numeroLong' FROM '^\d+') AS num,
+                       a.data->'cycleDeVie'->>'sort' AS sort,
+                       c.uid AS cr_uid
+                FROM assemblee.amendements a
+                JOIN assemblee.documents doc ON doc.uid = a.data->>'texteLegislatifRef'
+                JOIN alinea.compte_rendu c ON c.seance_ref = a.data->>'seanceDiscussionRef'
+                WHERE doc.data->>'dossierRef' = :dossier
+                  AND a.data->'cycleDeVie'->>'sort' IN ('Adopté', 'Rejeté')
+                  AND substring(a.data->'identification'->>'numeroLong' FROM '^\d+') IS NOT NULL
+            ),
+            mentions AS (
+                SELECT ac.uid, ac.numero, ac.sort, ac.cr_uid, p.ordre_absolu_seance AS ord
+                FROM amdts_cr ac
+                JOIN alinea.cr_parole p ON p.compte_rendu_uid = ac.cr_uid
+                 AND p.texte_brut ILIKE '%amendement%'
+                 AND p.texte_brut ~ ('(n[°ºo]s? ?|amendements?[^0-9]{0,10})' || ac.num || '([^0-9a-zàâäçéèêëîïôöùûüÿœæ°]|$)')
+            ),
+            gaps AS (
+                SELECT uid, numero, sort, cr_uid, ord,
+                       CASE WHEN ord - lag(ord) OVER (PARTITION BY uid, cr_uid ORDER BY ord) > 100
+                            THEN 1 ELSE 0 END AS ng
+                FROM mentions
+            ),
+            grp AS (
+                SELECT uid, numero, sort, cr_uid, ord,
+                       sum(ng) OVER (PARTITION BY uid, cr_uid ORDER BY ord) AS g
+                FROM gaps
+            ),
+            grappe AS (
+                SELECT uid, numero, sort, min(ord) AS lo, max(ord) AS hi, count(*) AS nb_cit
+                FROM grp
+                GROUP BY uid, numero, sort, cr_uid, g
+            ),
+            best AS (
+                SELECT DISTINCT ON (uid) uid, numero, sort, nb_cit, (hi - lo) AS span
+                FROM grappe
+                ORDER BY uid, nb_cit DESC, (hi - lo) DESC
+            )
+            SELECT uid, numero, sort, nb_cit, span
+            FROM best
+            WHERE nb_cit >= 2
+            ORDER BY nb_cit DESC, span DESC
+            LIMIT
+            SQL . ' ' . max(1, $limite),
+            ['dossier' => $dossierUid]
+        );
+
+        return array_map(static fn (array $r): array => [
+            'uid' => $r['uid'],
+            'numero' => $r['numero'],
+            'sort' => $r['sort'],
+            'nb_cit' => (int) $r['nb_cit'],
+            'span' => (int) $r['span'],
+        ], $rows);
+    }
+
+    /**
      * Regroupe les positions des mentions en grappes (une discussion est
      * contiguë) et garde la plus dense. Un même numéro peut en effet
      * apparaître ailleurs dans la séance — homonyme d'un autre texte,

@@ -11,6 +11,8 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Contracts\Cache\CacheInterface;
+use Symfony\Contracts\Cache\ItemInterface;
 
 class LoiController extends AbstractController
 {
@@ -38,8 +40,10 @@ class LoiController extends AbstractController
         string $id,
         LoiRepository $lois,
         AmendementRepository $amendements,
+        DebatRepository $debats,
         ProvenanceAnalyseur $analyseur,
         AnalyseAmendementIa $analyseIa,
+        CacheInterface $cache,
     ): Response {
         $loi = $lois->find($id);
 
@@ -55,9 +59,39 @@ class LoiController extends AbstractController
         $autresParDivision = [];
         $autresTotal = 0;
         $analysesRestantes = 0;
+        $topDebat = [];
 
         if ($dossier !== null) {
             $nbAmendements = $amendements->countPourDossier($dossier['uid']);
+
+            // Amendements les plus discutés en séance (sans IA, mesuré sur les
+            // CRI). Requête lourde (jointure regex sur cr_parole) : mise en cache
+            // par dossier, TTL 24 h — à vider (cache:pool:clear) après un réimport
+            // des comptes rendus si l'on veut rafraîchir avant expiration.
+            $classement = $cache->get(
+                'debat_top_' . $dossier['uid'],
+                static function (ItemInterface $item) use ($debats, $dossier): array {
+                    $item->expiresAfter(86400);
+
+                    return $debats->classerParDebat($dossier['uid'], 3);
+                }
+            );
+            foreach ($classement as $c) {
+                $a = $amendements->findOne($c['uid']);
+                if ($a === null) {
+                    continue;
+                }
+                $topDebat[] = [
+                    'numero' => $a['numero'],
+                    'auteur' => $a['auteur'],
+                    'groupe' => $a['groupe'],
+                    'statut' => $a['statut'],
+                    'classe' => $a['sort_classe'],
+                    'nbCitations' => $c['nb_cit'],
+                    'ancre' => 'amdt-' . $c['uid'],
+                    'url' => $this->generateUrl('loi_amendement', ['id' => $loi['id'], 'uid' => $c['uid']]),
+                ];
+            }
 
             // Adoptés et rejetés en une passe : les adoptés nourrissent le
             // Rayon X, l'ensemble alimente les résumés IA.
@@ -103,6 +137,7 @@ class LoiController extends AbstractController
                 $analyse = $ia['analyses'][$a['uid']] ?? null;
                 $division = $a['division'] ?? 'Hors article';
                 $autresParDivision[$division][] = [
+                    'uid' => $a['uid'],
                     'numero' => $a['numero'],
                     'phase' => $a['phase'],
                     'auteur' => $a['auteur'],
@@ -167,6 +202,7 @@ class LoiController extends AbstractController
             'autresParDivision' => $autresParDivision,
             'autresTotal' => $autresTotal,
             'analysesRestantes' => $analysesRestantes,
+            'topDebat' => $topDebat,
         ]);
     }
 

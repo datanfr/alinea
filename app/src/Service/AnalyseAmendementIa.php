@@ -289,7 +289,9 @@ class AnalyseAmendementIa
 
     /**
      * Le schéma garantit la forme du JSON ; on borne malgré tout les valeurs
-     * avant insertion (longueur du résumé court, score dans [0, 100]).
+     * avant insertion (score dans [0, 100]). Le résumé court n'est pas tronqué :
+     * le modèle est guidé pour rester concis, mais on ne coupe jamais en plein
+     * mot (sinon le texte devient illisible et non recherchable).
      */
     private function normaliser(mixed $donnees): ?array
     {
@@ -298,10 +300,6 @@ class AnalyseAmendementIa
         }
 
         $court = trim($donnees['resume_court']);
-        if (mb_strlen($court) > 120) {
-            $court = mb_substr($court, 0, 119) . '…';
-        }
-
         $detaille = trim((string) ($donnees['resume_detaille'] ?? ''));
         $intention = trim((string) ($donnees['intention'] ?? ''));
         $categorie = $donnees['categorie'] ?? null;

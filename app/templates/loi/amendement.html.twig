@@ -164,6 +164,13 @@
         </div>
     </header>
 
+    {% if a.dispositif %}
+        <section class="bloc">
+            <h2>Dispositif</h2>
+            <div>{{ a.dispositif|raw }}</div>
+        </section>
+    {% endif %}
+
     {% if analyse %}
         {% set libellesCategorie = {
             coordination: 'Coordination', redactionnel: 'Rédactionnel',
@@ -196,13 +203,6 @@
                     <span class="badge-ia{{ ambigu ? ' badge-ambigu' }}" title="Écart entre l'objectif affiché par l'auteur et l'effet réel du changement">Ambiguïté {{ analyse.ambiguite }}/100</span>
                 {% endif %}
             </div>
-        </section>
-    {% endif %}
-
-    {% if a.dispositif %}
-        <section class="bloc">
-            <h2>Dispositif</h2>
-            <div>{{ a.dispositif|raw }}</div>
         </section>
     {% endif %}
 
