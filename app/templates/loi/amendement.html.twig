@@ -64,6 +64,60 @@
         padding-bottom: .5rem;
         margin: 0 0 .75rem;
     }
+    /* Analyse IA : ce que l'amendement change, l'intention réelle et les
+       scores ; en alerte quand l'objectif affiché ne colle pas à l'effet réel. */
+    section.analyse-ia { border-left: 4px solid #7c6ce0; }
+    section.analyse-ia h2 { color: #6a5cd0; border-bottom-color: #e4dfff; }
+    section.analyse-ia h2 small {
+        text-transform: none;
+        letter-spacing: 0;
+        font-weight: normal;
+        color: var(--gris);
+    }
+    section.analyse-ia .resume-court {
+        font-size: 1.05rem;
+        font-weight: 600;
+        margin: 0 0 .6rem;
+    }
+    section.analyse-ia .intention { margin: 0 0 .6rem; }
+    section.analyse-ia .intention strong {
+        font-family: system-ui, sans-serif;
+        font-size: .75rem;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        color: #6a5cd0;
+    }
+    section.analyse-ia .detail {
+        margin: 0 0 .6rem;
+        color: #3a3a3a;
+    }
+    section.analyse-ia .scores {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .35rem;
+        font-family: system-ui, sans-serif;
+    }
+    section.analyse-ia .badge-ia {
+        font-size: .75rem;
+        background: #e9e5ff;
+        color: #4a3fa8;
+        padding: .12rem .6rem;
+        border-radius: 2rem;
+    }
+    section.analyse-ia.ambigu { border-left-color: #d64d00; }
+    section.analyse-ia.ambigu h2 { color: #d64d00; border-bottom-color: #ffe4d4; }
+    section.analyse-ia.ambigu .intention {
+        background: #ffe4d4;
+        border-radius: .25rem;
+        padding: .4rem .6rem;
+        color: #642700;
+    }
+    section.analyse-ia.ambigu .intention strong { color: #b23c00; }
+    section.analyse-ia .badge-ia.badge-ambigu {
+        background: #ffddc7;
+        color: #a33c00;
+        font-weight: 600;
+    }
     section.debat .seance {
         font-family: system-ui, sans-serif;
         font-size: .85rem;
@@ -110,6 +164,41 @@
         </div>
     </header>
 
+    {% if analyse %}
+        {% set libellesCategorie = {
+            coordination: 'Coordination', redactionnel: 'Rédactionnel',
+            simplification: 'Simplification', correction: 'Correction',
+            precision: 'Précision', consequence: 'Conséquence',
+            coherence: 'Cohérence', fond: 'Fond',
+        } %}
+        {% set ambigu = analyse.ambiguite is not null and analyse.ambiguite >= 50 %}
+        <section class="bloc analyse-ia{{ ambigu ? ' ambigu' }}">
+            <h2>{{ ambigu ? '⚠ Ce que ça change vraiment' : 'Ce que ça change' }} <small>· analyse IA</small></h2>
+            {% if analyse.resume %}
+                <p class="resume-court">{{ analyse.resume }}</p>
+            {% else %}
+                <p class="resume-court vide">Amendement technique, sans changement de fond.</p>
+            {% endif %}
+            {% if analyse.intention %}
+                <p class="intention"><strong>Intention :</strong> {{ analyse.intention }}</p>
+            {% endif %}
+            {% if analyse.resume_detaille %}
+                <p class="detail">{{ analyse.resume_detaille }}</p>
+            {% endif %}
+            <div class="scores">
+                {% if analyse.categorie %}
+                    <span class="badge-ia">{{ libellesCategorie[analyse.categorie] ?? analyse.categorie }}</span>
+                {% endif %}
+                {% if analyse.score_impact is not null %}
+                    <span class="badge-ia" title="Poids du changement sur la portée et l'intention de la loi">Impact {{ analyse.score_impact }}/100</span>
+                {% endif %}
+                {% if analyse.ambiguite is not null %}
+                    <span class="badge-ia{{ ambigu ? ' badge-ambigu' }}" title="Écart entre l'objectif affiché par l'auteur et l'effet réel du changement">Ambiguïté {{ analyse.ambiguite }}/100</span>
+                {% endif %}
+            </div>
+        </section>
+    {% endif %}
+
     {% if a.dispositif %}
         <section class="bloc">
             <h2>Dispositif</h2>
@@ -125,10 +214,14 @@
     {% endif %}
 
     <section class="bloc debat">
-        <h2>Le débat en séance (compte rendu intégral)</h2>
+        <h2>Le débat {{ debat and debat.compte_rendu.type == 'commission' ? 'en commission' : 'en séance' }} (compte rendu)</h2>
         {% if debat %}
             <p class="seance">
-                {{ debat.compte_rendu.num_seance_jour ?? '' }} séance du {{ debat.compte_rendu.date_seance|date('d/m/Y') }}
+                {% if debat.compte_rendu.type == 'commission' %}
+                    Réunion du {{ debat.compte_rendu.date_seance|date('d/m/Y') }} — {{ debat.compte_rendu.session_libelle }}
+                {% else %}
+                    {{ debat.compte_rendu.num_seance_jour ?? '' }} séance du {{ debat.compte_rendu.date_seance|date('d/m/Y') }}
+                {% endif %}
                 — {{ debat.paroles|length }} intervention{{ debat.paroles|length > 1 ? 's' }}
                 · <a href="{{ debat.compte_rendu.url_an }}" target="_blank" rel="noopener">Compte rendu intégral ↗</a>
             </p>
@@ -140,13 +233,14 @@
                     <p>{{ parole.texte_brut|nl2br }}</p>
                 </div>
             {% endfor %}
+        {% elseif a.organe_examen starts with 'Commission' %}
+            <p class="indisponible">Cet amendement n'apparaît pas nommément dans les comptes rendus
+                de commission importés (non soutenu, retiré avant discussion, traité en groupe —
+                ou réunion pas encore importée via app:import:comptes-rendus-commissions).</p>
         {% elseif a.seance_ref %}
             <p class="indisponible">Cet amendement est rattaché à une séance mais n'apparaît pas
                 dans le compte rendu (amendement non soutenu, retiré avant discussion ou discuté
                 en groupe sans mention individuelle).</p>
-        {% elseif a.organe_examen starts with 'Commission' %}
-            <p class="indisponible">Amendement examiné en commission : les comptes rendus des
-                commissions ne sont pas disponibles dans la base (seule la séance publique est couverte).</p>
         {% else %}
             <p class="indisponible">Aucune séance de discussion n'est rattachée à cet amendement.</p>
         {% endif %}

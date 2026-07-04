@@ -2,7 +2,51 @@
 
 {% block title %}{{ loi.num ? 'Loi n° ' ~ loi.num : loi.titre }} — Alinéa{% endblock %}
 
+{% macro carteAmendement(a) %}
+    {% set libellesCategorie = {
+        coordination: 'Coordination', redactionnel: 'Rédactionnel',
+        simplification: 'Simplification', correction: 'Correction',
+        precision: 'Précision', consequence: 'Conséquence',
+        coherence: 'Cohérence', fond: 'Fond',
+    } %}
+    <article class="carte-amendement classe-{{ a.classe }}"
+             data-sort="{{ a.classe }}"
+             data-impact="{{ a.scoreImpactIa ?? -1 }}"
+             data-categorie="{{ a.categorieIa ?? '' }}"
+             data-recherche="{{ [a.numero, a.auteur, a.groupe, a.division, a.resumeIa, a.intentionIa, (a.categorieIa ? libellesCategorie[a.categorieIa])]|join(' ')|lower }}">
+        <div class="carte-tete">
+            <span class="badge {{ a.classe }}">{{ a.statut }}</span>
+            <span class="carte-num">n° {{ a.numero }}</span>
+        </div>
+        <p class="carte-meta">
+            {{ a.auteur }}{% if a.groupe %} ({{ a.groupe }}){% endif %}
+            {%- if a.division %} · {{ a.division }}{% endif %}
+        </p>
+        {# resumeIa null = pas encore analysé ; vide = analysé, purement technique. #}
+        {% if a.resumeIa is not null %}
+            {% if a.resumeIa %}
+                <p class="carte-resume">{{ a.resumeIa }}</p>
+            {% else %}
+                <p class="carte-resume vide">Amendement technique, sans changement de fond.</p>
+            {% endif %}
+            {% if a.intentionIa %}
+                <p class="carte-intention"><strong>Intention :</strong> {{ a.intentionIa }}</p>
+            {% endif %}
+            {% if a.categorieIa or a.scoreImpactIa is not null %}
+                <div class="carte-badges">
+                    {% if a.categorieIa %}<span class="badge-ia">{{ libellesCategorie[a.categorieIa] ?? a.categorieIa }}</span>{% endif %}
+                    {% if a.scoreImpactIa is not null %}<span class="badge-ia">Impact {{ a.scoreImpactIa }}/100</span>{% endif %}
+                </div>
+            {% endif %}
+        {% else %}
+            <p class="carte-resume vide">Analyse en cours…</p>
+        {% endif %}
+        <a class="carte-lien" href="{{ a.url }}">Détail et débat →</a>
+    </article>
+{% endmacro %}
+
 {% block styles %}
+    main { max-width: 78rem; }
     a.retour {
         font-family: system-ui, sans-serif;
         font-size: .9rem;
@@ -66,6 +110,16 @@
         margin-top: .5rem;
         color: var(--gris);
     }
+
+    /* Mise en page deux colonnes : la loi à gauche, les amendements en regard. */
+    .loi-layout {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 22rem;
+        gap: 2.5rem;
+        align-items: start;
+    }
+
     article.article {
         background: #fff;
         border: 1px solid var(--bordure);
@@ -97,6 +151,142 @@
         font-style: italic;
         color: var(--gris);
     }
+    .filtres-amendements {
+        position: sticky;
+        top: .5rem;
+        z-index: 5;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: .75rem 1.5rem;
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+        box-shadow: 0 2px 6px rgba(0,0,0,.08);
+        padding: .6rem 1rem;
+        margin: 0 0 1.5rem;
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+    }
+    .filtres-amendements .filtre-recherche {
+        flex: 1 1 15rem;
+        min-width: 11rem;
+        padding: .4rem .75rem;
+        border: 1px solid var(--bordure);
+        border-radius: 2rem;
+        font: inherit;
+        color: var(--encre);
+    }
+    .filtres-amendements .filtre-recherche:focus {
+        outline: none;
+        border-color: var(--bleu);
+        box-shadow: 0 0 0 2px rgba(0,0,145,.15);
+    }
+    .filtres-amendements .filtre-sort {
+        display: flex;
+        border: 1px solid var(--bordure);
+        border-radius: 2rem;
+        overflow: hidden;
+    }
+    .filtres-amendements .filtre-sort button {
+        border: none;
+        background: #fff;
+        padding: .35rem .9rem;
+        cursor: pointer;
+        font: inherit;
+        color: var(--gris);
+    }
+    .filtres-amendements .filtre-sort button.actif {
+        background: var(--bleu);
+        color: #fff;
+    }
+    .filtres-amendements .filtre-impact {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        color: var(--gris);
+    }
+    .filtres-amendements .filtre-impact input {
+        accent-color: var(--bleu);
+        width: 9rem;
+    }
+    .filtres-amendements .filtre-impact output {
+        min-width: 3rem;
+        font-variant-numeric: tabular-nums;
+    }
+    .filtres-amendements select {
+        padding: .35rem .6rem;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+        background: #fff;
+        font: inherit;
+        color: var(--encre);
+    }
+    /* Légende de l'échelle d'impact (0–100) attribuée par l'IA à chaque amendement. */
+    .legende-impact {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: .35rem .7rem;
+        font-family: system-ui, sans-serif;
+        font-size: .8rem;
+        color: var(--gris);
+        margin: -0.9rem 0 1.6rem;
+    }
+    .legende-impact .legende-titre { font-weight: 600; color: var(--encre); }
+    .echelle-impact {
+        display: flex;
+        flex-wrap: wrap;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+        overflow: hidden;
+    }
+    .echelle-impact li {
+        padding: .2rem .6rem;
+        white-space: nowrap;
+    }
+    .echelle-impact li b {
+        font-variant-numeric: tabular-nums;
+        margin-right: .3rem;
+    }
+    .echelle-impact li:nth-child(1) { background: #f3f0ff; color: #4a3fa8; }
+    .echelle-impact li:nth-child(2) { background: #ddd4fb; color: #4a3fa8; }
+    .echelle-impact li:nth-child(3) { background: #b9a9f2; color: #241a63; }
+    .echelle-impact li:nth-child(4) { background: #7c6ce0; color: #fff; }
+    .carte-intention {
+        font-size: .82rem;
+        color: #4a3fa8;
+        background: #f3f0ff;
+        border-radius: .25rem;
+        padding: .35rem .6rem;
+        margin: .4rem 0;
+    }
+    .carte-intention strong {
+        font-family: system-ui, sans-serif;
+        font-size: .7rem;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+    }
+    .filtres-amendements .filtre-compteur {
+        margin-left: auto;
+        color: var(--gris);
+    }
+    .filtres-amendements .filtre-compteur b {
+        color: var(--encre);
+        font-variant-numeric: tabular-nums;
+    }
+    .alinea-amende.estompe {
+        background: transparent;
+        border-left-color: transparent;
+        cursor: default;
+        pointer-events: none;
+    }
+    .alinea-amende.estompe::after { display: none; }
+    .note[hidden], .carte-amendement[hidden], .bloc-division[hidden],
+    .fiche-amendement[hidden] { display: none !important; }
     p.legende-rayon-x {
         font-family: system-ui, sans-serif;
         font-size: .85rem;
@@ -106,13 +296,19 @@
         padding: .6rem 1rem;
     }
     .alinea-amende {
-        background: #fef7e0;
+        background: #fce8a6;
         cursor: pointer;
-        border-left: 3px solid #e8b500;
-        padding-left: .75rem;
-        transition: background .15s;
+        padding: .05em .12em;
+        border-radius: .18em;
+        box-decoration-break: clone;
+        -webkit-box-decoration-break: clone;
+        transition: background .15s, box-shadow .15s;
     }
-    .alinea-amende:hover { background: #fdedb5; }
+    .alinea-amende:hover { background: #f9dc7a; }
+    .alinea-amende.actif {
+        background: #f6d34e;
+        box-shadow: 0 0 0 2px #e8b500;
+    }
     .alinea-amende::after {
         content: attr(data-nb);
         font-family: system-ui, sans-serif;
@@ -125,85 +321,211 @@
         margin-left: .45rem;
         vertical-align: super;
     }
-    dialog#modale-amendements {
-        border: none;
-        border-top: 4px solid var(--bleu);
-        border-radius: .25rem;
-        box-shadow: 0 .5rem 2rem rgba(0,0,0,.25);
-        padding: 0;
-        width: min(46rem, 92vw);
-        max-height: 85vh;
-    }
-    dialog#modale-amendements::backdrop { background: rgba(0,0,0,.45); }
-    dialog#modale-amendements .entete {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem 1.5rem;
-        border-bottom: 1px solid var(--bordure);
-        font-family: system-ui, sans-serif;
-    }
-    dialog#modale-amendements .entete h2 { font-size: 1rem; margin: 0; }
-    dialog#modale-amendements .entete button {
-        border: none;
-        background: none;
-        font-size: 1.3rem;
-        cursor: pointer;
-        color: var(--gris);
-    }
-    dialog#modale-amendements .corps {
-        padding: 1rem 1.5rem;
-        overflow-y: auto;
-        max-height: calc(85vh - 4rem);
-    }
-    .fiche-amendement {
-        border: 1px solid var(--bordure);
-        border-radius: .25rem;
-        padding: 1rem 1.25rem;
-        margin-bottom: 1rem;
-    }
-    .fiche-amendement .titre-fiche {
-        font-family: system-ui, sans-serif;
-        font-weight: 600;
-        margin-bottom: .3rem;
-    }
-    .fiche-amendement .meta-fiche {
+
+    /* Colonne de droite : notes de marge alignées sur leur passage. */
+    .colonne-notes { position: relative; }
+    .colonne-notes .titre-colonne {
+        display: none;
         font-family: system-ui, sans-serif;
         font-size: .8rem;
-        color: var(--gris);
-        margin-bottom: .6rem;
-        display: flex;
-        flex-wrap: wrap;
-        gap: .3rem .9rem;
-        align-items: center;
-    }
-    .fiche-amendement .badge {
-        display: inline-block;
-        font-size: .72rem;
-        padding: .1rem .5rem;
-        border-radius: 2rem;
-    }
-    .fiche-amendement .badge.adopte { background: #e3f5e1; color: #18753c; }
-    .fiche-amendement .expose {
-        font-size: .9rem;
-        border-top: 1px dashed var(--bordure);
-        padding-top: .6rem;
-        margin-top: .4rem;
-    }
-    .fiche-amendement .expose h3 {
-        font-family: system-ui, sans-serif;
-        font-size: .72rem;
         text-transform: uppercase;
         letter-spacing: .05em;
         color: var(--gris);
+        margin: 0 0 1rem;
+    }
+    .note {
+        position: absolute;
+        left: 0;
+        right: 0;
+        border-left: 3px solid #e8b500;
+        background: #fff;
+        border-radius: .25rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,.06);
+        transition: box-shadow .15s, transform .15s;
+    }
+    .note.actif {
+        box-shadow: 0 0 0 2px #e8b500, 0 2px 8px rgba(0,0,0,.12);
+    }
+    .note .note-tete {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+        border: none;
+        background: none;
+        text-align: left;
+        cursor: pointer;
+        font-family: system-ui, sans-serif;
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        color: var(--gris);
+        padding: .5rem .9rem;
+    }
+    .note .note-tete::after { content: '↩'; color: #e8b500; }
+    .fiche-amendement {
+        padding: .3rem .9rem 1rem;
+    }
+    .fiche-amendement + .fiche-amendement {
+        border-top: 1px solid var(--bordure);
+        padding-top: .8rem;
+    }
+    /* Seule l'intention est affichée : son opacité traduit le poids de
+       l'amendement (impact + ambiguïté) — les changements techniques
+       s'effacent, les amendements lourds ou ambigus ressortent. Le survol
+       rend la fiche pleinement lisible. */
+    .fiche-amendement .intention-fiche {
+        font-size: .85rem;
+        line-height: 1.45;
+        margin: 0 0 .5rem;
+        transition: opacity .15s;
+    }
+    .fiche-amendement:hover .intention-fiche { opacity: 1 !important; }
+    .fiche-amendement .intention-fiche.vide {
+        color: #b0b0b0;
+        font-style: italic;
+    }
+    .fiche-amendement .lien-detail {
+        font-family: system-ui, sans-serif;
+        font-size: .82rem;
+        text-decoration: none;
+    }
+
+    /* Section « hors texte » : amendements rejetés et adoptés non localisés,
+       qui n'ont pas de passage surligné dans la loi. */
+    .hors-texte {
+        margin: 3rem 0 1rem;
+        border-top: 2px solid var(--bordure);
+        padding-top: 1.5rem;
+    }
+    .hors-texte .titre-hors-texte {
+        font-family: system-ui, sans-serif;
+        font-size: 1.15rem;
+        display: flex;
+        align-items: center;
+        gap: .6rem;
         margin: 0 0 .3rem;
     }
-    .fiche-amendement .liens-fiche {
+    .compte {
+        font-family: system-ui, sans-serif;
+        font-size: .8rem;
+        font-weight: 600;
+        color: var(--gris);
+        background: var(--fond);
+        border: 1px solid var(--bordure);
+        border-radius: 2rem;
+        padding: .05rem .6rem;
+    }
+    .hors-texte .intro-hors-texte {
         font-family: system-ui, sans-serif;
         font-size: .85rem;
-        margin-top: .6rem;
+        color: var(--gris);
+        margin: 0 0 1.2rem;
+        max-width: 46rem;
     }
-    .fiche-amendement .liens-fiche a { margin-right: 1rem; }
+    .bloc-division { margin-top: 2rem; }
+    /* Amendements rattachés à un article : repliés sous son texte. */
+    details.amendements-article {
+        margin-top: 1rem;
+        border-top: 1px dashed var(--bordure);
+        padding-top: .75rem;
+    }
+    details.amendements-article summary {
+        font-family: system-ui, sans-serif;
+        font-size: .85rem;
+        color: var(--bleu);
+        cursor: pointer;
+    }
+    .bloc-division .titre-division {
+        font-family: system-ui, sans-serif;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--bleu);
+        display: flex;
+        align-items: center;
+        gap: .6rem;
+        margin: 0 0 .2rem;
+        padding-bottom: .4rem;
+        border-bottom: 1px solid var(--bordure);
+    }
+    .grille-cartes {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+    .carte-amendement {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-left: 3px solid var(--gris);
+        border-radius: .25rem;
+        padding: .8rem 1rem;
+        display: flex;
+        flex-direction: column;
+        font-family: system-ui, sans-serif;
+    }
+    .carte-amendement.classe-rejete { border-left-color: var(--rouge); }
+    .carte-amendement.classe-adopte { border-left-color: #18753c; }
+    .carte-tete {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: .5rem;
+        margin-bottom: .45rem;
+    }
+    .carte-amendement .badge {
+        font-size: .72rem;
+        padding: .1rem .55rem;
+        border-radius: 2rem;
+        white-space: nowrap;
+    }
+    .carte-amendement .badge.rejete { background: #fde3e3; color: var(--rouge); }
+    .carte-amendement .badge.adopte { background: #e3f5e1; color: #18753c; }
+    .carte-num { font-size: .8rem; color: var(--gris); white-space: nowrap; }
+    .carte-meta {
+        font-size: .78rem;
+        color: var(--gris);
+        margin: 0 0 .5rem;
+        line-height: 1.4;
+    }
+    .carte-resume {
+        font-family: Georgia, 'Times New Roman', serif;
+        font-size: .92rem;
+        line-height: 1.45;
+        color: var(--encre);
+        margin: 0 0 .6rem;
+    }
+    .carte-resume.vide { color: #b0b0b0; font-style: italic; }
+    .carte-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .3rem;
+        margin-bottom: .6rem;
+    }
+    .carte-badges .badge-ia {
+        font-size: .7rem;
+        background: #e9e5ff;
+        color: #4a3fa8;
+        padding: .08rem .5rem;
+        border-radius: 2rem;
+    }
+    .carte-lien {
+        font-size: .82rem;
+        text-decoration: none;
+        margin-top: auto;
+    }
+
+    /* Sous les 60rem : une seule colonne, les notes défilent sous le texte. */
+    @media (max-width: 60rem) {
+        .loi-layout { display: block; }
+        .colonne-notes { margin-top: 2.5rem; }
+        .colonne-notes .titre-colonne { display: block; }
+        .note {
+            position: static !important;
+            width: auto;
+            margin-bottom: 1rem;
+        }
+    }
 {% endblock %}
 
 {% block body %}
@@ -233,109 +555,348 @@
     {% endif %}
 
     {% if provenance is not empty %}
-        <p class="legende-rayon-x">Rayon X : les passages surlignés proviennent d'amendements
-            adoptés à l'Assemblée nationale — cliquez dessus pour voir lesquels, et pourquoi.</p>
+        <p class="legende-rayon-x">Rayon X : les passages surlignés proviennent d'amendements adoptés
+            à l'Assemblée nationale. En regard, dans la colonne de droite, l'amendement à l'origine de
+            chaque passage — cliquez sur un passage ou sa note pour les relier.
+            {%- if analysesRestantes > 0 %}
+                Les résumés IA sont générés progressivement : {{ analysesRestantes }} amendement{{ analysesRestantes > 1 ? 's' : '' }}
+                encore en attente d'analyse (rechargez la page pour continuer).
+            {%- endif %}</p>
     {% endif %}
 
-    {% if articles is empty %}
-        <p>Le contenu de cette loi n'est pas disponible dans la base.</p>
-    {% else %}
-        {% for article in articles %}
-            <article class="article" id="article-{{ article.num }}">
-                <h2>Article {{ article.num }}</h2>
-                <div>{{ article.contenu|raw }}</div>
-            </article>
-        {% endfor %}
+    {% if provenance is not empty or autresParDivision is not empty %}
+        {% set libellesCategorie = {
+            coordination: 'Coordination', redactionnel: 'Rédactionnel',
+            simplification: 'Simplification', correction: 'Correction',
+            precision: 'Précision', consequence: 'Conséquence',
+            coherence: 'Cohérence', fond: 'Fond',
+        } %}
+        <div class="filtres-amendements">
+            <input type="search" id="filtre-recherche" class="filtre-recherche"
+                   placeholder="Rechercher un mot-clé (résumé, intention, auteur…)"
+                   aria-label="Rechercher un mot-clé dans les amendements">
+            <div class="filtre-sort" role="group" aria-label="Filtrer par sort">
+                <button type="button" class="actif" data-sort="">Tous</button>
+                <button type="button" data-sort="adopte">Adoptés</button>
+                <button type="button" data-sort="rejete">Rejetés</button>
+            </div>
+            <label class="filtre-impact" title="Masque les amendements sous ce score d'impact (ceux encore en attente d'analyse sont masqués dès que le seuil dépasse zéro)">
+                Impact
+                <input type="range" id="filtre-impact" min="0" max="100" step="5" value="0">
+                <output id="filtre-impact-valeur">tous</output>
+            </label>
+            <select id="filtre-categorie" aria-label="Filtrer par catégorie">
+                <option value="">Toutes les catégories</option>
+                {% for cle, libelle in libellesCategorie %}
+                    <option value="{{ cle }}">{{ libelle }}</option>
+                {% endfor %}
+            </select>
+            <span class="filtre-compteur"><b id="filtre-compte">—</b> amendement<span id="filtre-compte-pluriel">s</span> affiché<span id="filtre-compte-pluriel2">s</span></span>
+        </div>
+
+        <div class="legende-impact">
+            <span class="legende-titre">Score d'impact</span> — estimé par l'IA, l'ampleur du changement apporté (ou proposé) au texte :
+            <ol class="echelle-impact">
+                <li><b>0–20</b>technique</li>
+                <li><b>21–50</b>ajustement limité</li>
+                <li><b>51–79</b>changement notable</li>
+                <li><b>80–100</b>changement majeur</li>
+            </ol>
+        </div>
     {% endif %}
 
-    {% if loi.signataires %}
-        <section class="signataires">{{ loi.signataires|raw }}</section>
+    {% import _self as ui %}
+
+    <div class="loi-layout">
+        <div class="colonne-texte">
+            {% if articles is empty %}
+                <p>Le contenu de cette loi n'est pas disponible dans la base.</p>
+            {% else %}
+                {% for article in articles %}
+                    <article class="article" id="article-{{ article.num }}">
+                        <h2>Article {{ article.num }}</h2>
+                        <div>{{ article.contenu|raw }}</div>
+                        {% set cartes = amendementsParArticle[article.num] ?? [] %}
+                        {% if cartes is not empty %}
+                            <details class="bloc-division amendements-article">
+                                <summary>Amendements examinés sur cet article <span class="compte">{{ cartes|length }}</span></summary>
+                                <div class="grille-cartes">
+                                    {% for a in cartes %}{{ ui.carteAmendement(a) }}{% endfor %}
+                                </div>
+                            </details>
+                        {% endif %}
+                    </article>
+                {% endfor %}
+            {% endif %}
+
+            {% if loi.signataires %}
+                <section class="signataires">{{ loi.signataires|raw }}</section>
+            {% endif %}
+        </div>
+
+        {% if provenance is not empty %}
+            <aside class="colonne-notes" id="colonne-notes">
+                <p class="titre-colonne">Amendements à l'origine du texte</p>
+            </aside>
+        {% endif %}
+    </div>
+
+    {% if autresParDivision is not empty %}
+        <section class="hors-texte">
+            <h2 class="titre-hors-texte">Amendements hors du texte promulgué <span class="compte">{{ autresTotal }}</span></h2>
+            <p class="intro-hors-texte">Les amendements visant des divisions qu'on ne retrouve pas dans la
+                loi promulguée : insertions « après l'article… », articles renumérotés ou supprimés au cours
+                de la navette, annexes et états. La numérotation est celle de l'examen à l'Assemblée. Le badge
+                indique le sort — adopté ou rejeté ; le résumé, ce que l'amendement changeait ou proposait.</p>
+
+            {% for division, cartes in autresParDivision %}
+                <div class="bloc-division">
+                    <h3 class="titre-division">{{ division }} <span class="compte">{{ cartes|length }}</span></h3>
+                    <div class="grille-cartes">
+                        {% for a in cartes %}{{ ui.carteAmendement(a) }}{% endfor %}
+                    </div>
+                </div>
+            {% endfor %}
+        </section>
     {% endif %}
 
     {% if provenance is not empty %}
-        <dialog id="modale-amendements">
-            <div class="entete">
-                <h2>D'où vient ce passage ?</h2>
-                <button type="button" aria-label="Fermer" onclick="this.closest('dialog').close()">✕</button>
-            </div>
-            <div class="corps" id="modale-contenu"></div>
-        </dialog>
-
         <script type="application/json" id="donnees-provenance">{{ provenance|json_encode(constant('JSON_HEX_TAG'))|raw }}</script>
         <script>
             const amendements = JSON.parse(document.getElementById('donnees-provenance').textContent);
-            const modale = document.getElementById('modale-amendements');
-            const contenu = document.getElementById('modale-contenu');
+            const colonne = document.getElementById('colonne-notes');
+            const layout = document.querySelector('.loi-layout');
+            const passages = [...document.querySelectorAll('.alinea-amende')];
 
-            document.querySelectorAll('.alinea-amende').forEach((p) => {
-                p.title = 'Cliquer pour voir les amendements à l\'origine de ce passage';
-                p.addEventListener('click', () => ouvrirModale(p.dataset.amendements.split(',')));
-            });
+            // Fiche minimale : l'intention seule, dont l'opacité traduit le
+            // poids de l'amendement (impact + ambiguïté, plafonné à 100), et
+            // le lien vers la page de détail.
+            function construireFiche(a) {
+                const fiche = document.createElement('article');
+                fiche.className = 'fiche-amendement';
+                fiche.dataset.uid = a.uid;
+                fiche.dataset.sort = a.classe ?? 'adopte';
+                fiche.dataset.impact = a.scoreImpactIa ?? -1;
+                fiche.dataset.categorie = a.categorieIa ?? '';
+                fiche.dataset.recherche = [a.numero, a.intentionIa].filter(Boolean).join(' ').toLowerCase();
 
-            function ouvrirModale(uids) {
-                contenu.replaceChildren();
-
-                // Historique : commission d'abord, puis séance(s), par date de dépôt.
-                const fiches = uids.map((uid) => amendements[uid]).filter(Boolean)
-                    .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-
-                for (const a of fiches) {
-                    const fiche = document.createElement('article');
-                    fiche.className = 'fiche-amendement';
-
-                    const titre = document.createElement('div');
-                    titre.className = 'titre-fiche';
-                    titre.textContent = `Amendement n° ${a.numero} — ${a.phase}`;
-                    fiche.appendChild(titre);
-
-                    const meta = document.createElement('div');
-                    meta.className = 'meta-fiche';
-                    const badge = document.createElement('span');
-                    badge.className = `badge ${a.classe}`;
-                    badge.textContent = a.statut;
-                    meta.appendChild(badge);
-                    for (const info of [
-                        a.auteur + (a.groupe ? ` (${a.groupe})` : ''),
-                        a.division,
-                        a.date ? 'Déposé le ' + a.date.split('-').reverse().join('/') : null,
-                    ]) {
-                        if (info) {
-                            const span = document.createElement('span');
-                            span.textContent = info;
-                            meta.appendChild(span);
-                        }
-                    }
-                    fiche.appendChild(meta);
-
-                    if (a.expose) {
-                        const expose = document.createElement('div');
-                        expose.className = 'expose';
-                        expose.innerHTML = '<h3>Exposé sommaire</h3>' + a.expose;
-                        fiche.appendChild(expose);
-                    }
-
-                    const liens = document.createElement('div');
-                    liens.className = 'liens-fiche';
-                    const lienDetail = document.createElement('a');
-                    lienDetail.href = a.url;
-                    lienDetail.textContent = 'Détail et débat en séance →';
-                    const lienAn = document.createElement('a');
-                    lienAn.href = a.urlAn;
-                    lienAn.target = '_blank';
-                    lienAn.rel = 'noopener';
-                    lienAn.textContent = 'Fiche officielle ↗';
-                    liens.append(lienDetail, lienAn);
-                    fiche.appendChild(liens);
-
-                    contenu.appendChild(fiche);
+                const intention = document.createElement('p');
+                intention.className = 'intention-fiche';
+                if (a.intentionIa) {
+                    intention.textContent = a.intentionIa;
+                    intention.style.opacity = Math.min(1, ((a.scoreImpactIa ?? 0) + (a.ambiguiteIa ?? 0)) / 100);
+                } else {
+                    intention.textContent = 'Analyse en cours…';
+                    intention.classList.add('vide');
                 }
+                fiche.appendChild(intention);
 
-                modale.showModal();
+                const lien = document.createElement('a');
+                lien.className = 'lien-detail';
+                lien.href = a.url;
+                lien.title = `Amendement n° ${a.numero}`;
+                lien.textContent = 'Détail →';
+                fiche.appendChild(lien);
+
+                return fiche;
             }
 
-            modale.addEventListener('click', (e) => {
-                if (e.target === modale) modale.close();
+            // Une note par passage surligné : elle contient le ou les amendements
+            // cités par data-amendements, dans l'ordre chronologique de dépôt.
+            const paires = [];
+            passages.forEach((passage, i) => {
+                passage.id = passage.id || 'al-' + i;
+
+                const uids = (passage.dataset.amendements || '').split(',');
+                const fiches = uids.filter((uid) => amendements[uid])
+                    .map((uid) => ({ uid, ...amendements[uid] }))
+                    .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+                if (fiches.length === 0) return;
+
+                const note = document.createElement('div');
+                note.className = 'note';
+                note.id = 'note-' + i;
+
+                const tete = document.createElement('button');
+                tete.type = 'button';
+                tete.className = 'note-tete';
+                const label = document.createElement('span');
+                label.textContent = fiches.length > 1
+                    ? fiches.length + ' amendements' : '1 amendement';
+                tete.appendChild(label);
+                note.appendChild(tete);
+
+                fiches.forEach((a) => note.appendChild(construireFiche(a)));
+                colonne.appendChild(note);
+
+                paires.push({ passage, note });
+
+                passage.title = 'Voir l\'amendement à l\'origine de ce passage';
+                passage.addEventListener('click', () => {
+                    activer(passage, note);
+                    note.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                });
+                note.addEventListener('click', (e) => {
+                    if (e.target.closest('a')) return;
+                    activer(passage, note);
+                    passage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                });
             });
+
+            function activer(passage, note) {
+                for (const p of paires) {
+                    p.passage.classList.toggle('actif', p.passage === passage);
+                    p.note.classList.toggle('actif', p.note === note);
+                }
+            }
+
+            // Aligne chaque note sur son passage ; en cas de collision, la note
+            // suivante est repoussée vers le bas. Ignoré en mono-colonne (mobile).
+            const monoColonne = window.matchMedia('(max-width: 60rem)');
+            function positionnerNotes() {
+                if (monoColonne.matches) {
+                    for (const { note } of paires) note.style.top = '';
+                    colonne.style.minHeight = '';
+                    return;
+                }
+                const origine = layout.getBoundingClientRect().top + window.scrollY;
+                let curseur = 0;
+                for (const { passage, note } of paires) {
+                    if (note.hidden) continue;
+                    const cible = passage.getBoundingClientRect().top + window.scrollY - origine;
+                    const top = Math.max(cible, curseur);
+                    note.style.top = top + 'px';
+                    curseur = top + note.offsetHeight + 16;
+                }
+                colonne.style.minHeight = curseur + 'px';
+            }
+
+            // Exposé pour la barre de filtres (sort, impact, catégorie).
+            window.alinea = { paires, positionnerNotes };
+
+            positionnerNotes();
+            window.addEventListener('load', positionnerNotes);
+            monoColonne.addEventListener('change', positionnerNotes);
+            let minuteur;
+            window.addEventListener('resize', () => {
+                clearTimeout(minuteur);
+                minuteur = setTimeout(positionnerNotes, 150);
+            });
+        </script>
+    {% endif %}
+
+    {% if provenance is not empty or autresParDivision is not empty %}
+        <script>
+            (() => {
+                const filtres = { sort: '', impactMin: 0, categorie: '', motcle: '' };
+
+                // Recherche insensible à la casse et aux accents.
+                const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+                // On normalise une fois pour toutes le texte cherchable des cartes
+                // et des fiches (rendues juste avant ce script).
+                document.querySelectorAll('[data-recherche]').forEach((el) => {
+                    el.dataset.recherche = norm(el.dataset.recherche);
+                });
+
+                // d = dataset portant data-sort / data-impact / data-categorie /
+                // data-recherche. Les amendements pas encore analysés (impact -1)
+                // disparaissent dès que le seuil d'impact dépasse zéro.
+                const correspond = (d) => (filtres.sort === '' || d.sort === filtres.sort)
+                    && (filtres.impactMin === 0 || parseInt(d.impact ?? '-1', 10) >= filtres.impactMin)
+                    && (filtres.categorie === '' || d.categorie === filtres.categorie)
+                    && (filtres.motcle === '' || (d.recherche ?? '').includes(filtres.motcle));
+
+                function appliquer() {
+                    let totalAffiche = 0;
+
+                    // Cartes « amendements par article ».
+                    document.querySelectorAll('.bloc-division').forEach((bloc) => {
+                        let visibles = 0;
+                        bloc.querySelectorAll('.carte-amendement').forEach((carte) => {
+                            const ok = correspond(carte.dataset);
+                            carte.hidden = !ok;
+                            if (ok) visibles++;
+                        });
+                        bloc.hidden = visibles === 0;
+                        const compte = bloc.querySelector('.compte');
+                        if (compte) compte.textContent = visibles;
+                        totalAffiche += visibles;
+
+                        // Une recherche active déplie les articles qui ont des
+                        // résultats, pour rendre les correspondances visibles.
+                        if (bloc.tagName === 'DETAILS' && filtres.motcle !== '') {
+                            bloc.open = visibles > 0;
+                        }
+                    });
+
+                    // Notes de marge du Rayon X : une note disparaît quand tous
+                    // ses amendements sont filtrés, et son passage s'estompe.
+                    // Un même amendement peut annoter plusieurs passages : on le
+                    // compte une seule fois (uid).
+                    if (window.alinea) {
+                        const uidsVisibles = new Set();
+                        for (const { passage, note } of window.alinea.paires) {
+                            let visibles = 0;
+                            note.querySelectorAll('.fiche-amendement').forEach((fiche) => {
+                                const ok = correspond(fiche.dataset);
+                                fiche.hidden = !ok;
+                                if (ok) {
+                                    visibles++;
+                                    uidsVisibles.add(fiche.dataset.uid);
+                                }
+                            });
+                            note.hidden = visibles === 0;
+                            passage.classList.toggle('estompe', visibles === 0);
+                        }
+                        window.alinea.positionnerNotes();
+                        totalAffiche += uidsVisibles.size;
+                    }
+
+                    document.getElementById('filtre-compte').textContent =
+                        totalAffiche.toLocaleString('fr-FR');
+                    const pluriel = totalAffiche > 1 ? 's' : '';
+                    document.getElementById('filtre-compte-pluriel').textContent = pluriel;
+                    document.getElementById('filtre-compte-pluriel2').textContent = pluriel;
+                }
+
+                const boutons = document.querySelectorAll('.filtres-amendements .filtre-sort button');
+                boutons.forEach((bouton) => {
+                    bouton.addEventListener('click', () => {
+                        boutons.forEach((b) => b.classList.toggle('actif', b === bouton));
+                        filtres.sort = bouton.dataset.sort;
+                        appliquer();
+                    });
+                });
+
+                const curseur = document.getElementById('filtre-impact');
+                const valeur = document.getElementById('filtre-impact-valeur');
+                curseur.addEventListener('input', () => {
+                    filtres.impactMin = parseInt(curseur.value, 10);
+                    valeur.textContent = filtres.impactMin > 0 ? '≥ ' + filtres.impactMin : 'tous';
+                    appliquer();
+                });
+
+                document.getElementById('filtre-categorie').addEventListener('change', (e) => {
+                    filtres.categorie = e.target.value;
+                    appliquer();
+                });
+
+                // Recherche par mot-clé (débounce léger pour ne pas filtrer à
+                // chaque frappe sur les longues listes).
+                const recherche = document.getElementById('filtre-recherche');
+                let minuteurRecherche;
+                recherche.addEventListener('input', () => {
+                    clearTimeout(minuteurRecherche);
+                    minuteurRecherche = setTimeout(() => {
+                        filtres.motcle = norm(recherche.value.trim());
+                        appliquer();
+                    }, 150);
+                });
+
+                // Compteur initial (aucun filtre actif).
+                appliquer();
+            })();
         </script>
     {% endif %}
 {% endblock %}

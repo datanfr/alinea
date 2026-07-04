@@ -2,6 +2,7 @@
 
 namespace App\Repository;
 
+use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 
 /**
@@ -114,13 +115,17 @@ class AmendementRepository
     }
 
     /**
-     * Amendements adoptés d'un dossier, avec leur dispositif : c'est la
-     * matière première du « Rayon X » (rattacher chaque alinéa de la loi
-     * promulguée aux amendements qui l'ont produit).
+     * Amendements d'un dossier ayant connu un sort donné (Adopté, Rejeté…),
+     * avec leur dispositif et exposé sommaire. Les adoptés sont la matière
+     * première du « Rayon X » (rattacher chaque alinéa de la loi promulguée
+     * aux amendements qui l'ont produit) ; adoptés + rejetés alimentent les
+     * résumés IA.
+     *
+     * @param list<string> $sorts
      *
      * @return list<array<string, mixed>>
      */
-    public function findAdoptesPourDossier(string $dossierUid): array
+    public function findParSortPourDossier(string $dossierUid, array $sorts = ['Adopté']): array
     {
         $rows = $this->connection->fetchAllAssociative(
             <<<'SQL'
@@ -135,6 +140,7 @@ class AmendementRepository
                    a.data->'pointeurFragmentTexte'->'division'->>'titre' AS division,
                    a.data->>'texteLegislatifRef' AS texte_ref,
                    substring(a.data->>'texteLegislatifRef' FROM '[0-9]+$') AS texte_num,
+                   a.data->>'seanceDiscussionRef' AS seance_ref,
                    a.data->'corps'->'contenuAuteur'->>'dispositif' AS dispositif,
                    a.data->'corps'->'contenuAuteur'->>'exposeSommaire' AS expose_sommaire,
                    a.data->'signataires'->'auteur'->>'typeAuteur' AS type_auteur,
@@ -150,13 +156,58 @@ class AmendementRepository
             WHERE a.data->>'texteLegislatifRef' IN (
                 SELECT uid FROM assemblee.documents d WHERE d.data->>'dossierRef' = :dossier
             )
-              AND a.data->'cycleDeVie'->>'sort' = 'Adopté'
+              AND a.data->'cycleDeVie'->>'sort' IN (:sorts)
             ORDER BY a.data->>'texteLegislatifRef', a.data->>'triAmendement'
             SQL,
-            ['dossier' => $dossierUid]
+            ['dossier' => $dossierUid, 'sorts' => $sorts],
+            ['sorts' => ArrayParameterType::STRING]
         );
 
         return array_map($this->hydrate(...), $rows);
+    }
+
+    /**
+     * Séances publiques AN d'un dossier (réunions des actes
+     * DiscussionSeancePublique), dans l'ordre chronologique. Sert de repli
+     * quand un amendement n'a pas de seanceDiscussionRef.
+     *
+     * @return list<string> uids de réunions (RUAN…)
+     */
+    public function findSeancesPourDossier(string $dossierUid): array
+    {
+        return $this->connection->fetchFirstColumn(
+            <<<'SQL'
+            SELECT acte->>'reunionRef'
+            FROM assemblee.dossiers d,
+                 jsonb_path_query(d.data, '$.actesLegislatifs.** ? (@.xsiType == "DiscussionSeancePublique_Type")') AS acte
+            WHERE d.uid = :dossier AND acte->>'reunionRef' LIKE 'RUAN%'
+            GROUP BY 1
+            ORDER BY min(acte->>'dateActe')
+            SQL,
+            ['dossier' => $dossierUid]
+        );
+    }
+
+    /**
+     * Comptes rendus des réunions de commission d'un dossier (actes
+     * DiscussionCommission), dans l'ordre chronologique.
+     *
+     * @return list<string> uids de comptes rendus (CRC…)
+     */
+    public function findCrCommissionsPourDossier(string $dossierUid): array
+    {
+        return $this->connection->fetchFirstColumn(
+            <<<'SQL'
+            SELECT r.data->>'compteRenduRef'
+            FROM assemblee.dossiers d,
+                 jsonb_path_query(d.data, '$.actesLegislatifs.** ? (@.xsiType == "DiscussionCommission_Type")') AS acte
+            JOIN assemblee.reunions r ON r.uid = acte->>'reunionRef'
+            WHERE d.uid = :dossier AND coalesce(r.data->>'compteRenduRef', '') <> ''
+            GROUP BY 1
+            ORDER BY min(acte->>'dateActe')
+            SQL,
+            ['dossier' => $dossierUid]
+        );
     }
 
     /**
