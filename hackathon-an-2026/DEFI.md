@@ -14,6 +14,9 @@ exacte du débat parlementaire qui lui a donné son sens. On transforme les donn
 chaque paragraphe, *pourquoi* il existe, *via quel amendement*, et *à la suite de quel
 rapport de force*.
 
+### Démo en ligne
+https://alinea.remikel.fr/
+
 ### Porteur
 Équipe Alinéa
 

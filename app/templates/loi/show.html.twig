@@ -49,7 +49,7 @@
 {% block styles %}
     main { max-width: 78rem; }
     a.retour {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .9rem;
         text-decoration: none;
     }
@@ -67,14 +67,14 @@
         line-height: 1.4;
     }
     header.loi .meta {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .85rem;
         color: var(--gris);
     }
     header.loi .meta a { margin-left: .5rem; }
     a.amendements {
         display: inline-block;
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .9rem;
         color: #fff;
         background: var(--bleu);
@@ -85,7 +85,7 @@
     }
     a.amendements:hover { background: var(--bleu-hover); color: #fff; }
     p.sans-amendement {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .85rem;
         color: var(--gris);
         background: var(--fond);
@@ -101,7 +101,7 @@
         border-radius: .25rem;
         padding: 1.1rem 1.5rem 1.3rem;
         margin: 0 0 2rem;
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
     }
     .encadre-debat h2 {
         font-size: .95rem;
@@ -185,7 +185,7 @@
         font-size: .95rem;
     }
     details.visas summary {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .9rem;
         color: var(--bleu);
         cursor: pointer;
@@ -216,7 +216,7 @@
         margin-bottom: 1rem;
     }
     article.article h2 {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .85rem;
         text-transform: uppercase;
         letter-spacing: .05em;
@@ -253,7 +253,7 @@
         box-shadow: 0 2px 6px rgba(0,0,0,.08);
         padding: .6rem 1rem;
         margin: 0 0 1.5rem;
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .85rem;
     }
     .filtres-amendements .filtre-recherche {
@@ -316,7 +316,7 @@
         flex-wrap: wrap;
         align-items: center;
         gap: .35rem .7rem;
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .8rem;
         color: var(--gris);
         margin: -0.9rem 0 1.6rem;
@@ -353,7 +353,7 @@
         margin: .4rem 0;
     }
     .carte-intention strong {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .7rem;
         text-transform: uppercase;
         letter-spacing: .04em;
@@ -409,7 +409,7 @@
     }
     .nav-amendements button:hover { background: var(--bleu-hover); }
     .nav-amendements .nav-compteur {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .68rem;
         color: var(--gris);
         font-variant-numeric: tabular-nums;
@@ -419,7 +419,7 @@
         .nav-amendements { right: .5rem; }
     }
     p.legende-rayon-x {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .85rem;
         color: var(--gris);
         background: #fef7e0;
@@ -442,7 +442,7 @@
     }
     .alinea-amende::after {
         content: attr(data-nb);
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .7rem;
         font-weight: 600;
         color: #fff;
@@ -457,7 +457,7 @@
     .colonne-notes { position: relative; }
     .colonne-notes .titre-colonne {
         display: none;
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .8rem;
         text-transform: uppercase;
         letter-spacing: .05em;
@@ -486,7 +486,7 @@
         background: none;
         text-align: left;
         cursor: pointer;
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .72rem;
         text-transform: uppercase;
         letter-spacing: .04em;
@@ -517,7 +517,7 @@
         font-style: italic;
     }
     .fiche-amendement .lien-detail {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .82rem;
         text-decoration: none;
     }
@@ -530,7 +530,7 @@
         padding-top: 1.5rem;
     }
     .hors-texte .titre-hors-texte {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: 1.15rem;
         display: flex;
         align-items: center;
@@ -538,7 +538,7 @@
         margin: 0 0 .3rem;
     }
     .compte {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .8rem;
         font-weight: 600;
         color: var(--gris);
@@ -548,7 +548,7 @@
         padding: .05rem .6rem;
     }
     .hors-texte .intro-hors-texte {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .85rem;
         color: var(--gris);
         margin: 0 0 1.2rem;
@@ -562,13 +562,13 @@
         padding-top: .75rem;
     }
     details.amendements-article summary {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: .85rem;
         color: var(--bleu);
         cursor: pointer;
     }
     .bloc-division .titre-division {
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
         font-size: 1rem;
         font-weight: 600;
         color: var(--bleu);
@@ -593,7 +593,7 @@
         padding: .8rem 1rem;
         display: flex;
         flex-direction: column;
-        font-family: system-ui, sans-serif;
+        font-family: var(--police);
     }
     .carte-amendement.classe-rejete { border-left-color: var(--rouge); }
     .carte-amendement.classe-adopte { border-left-color: #18753c; }
