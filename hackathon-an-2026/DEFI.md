@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="images/logo.png" alt="Alinéa" width="320">
+  <img src="images/logo.svg" alt="Alinéa" width="320">
 </p>
 
 # DEFI.md
@@ -81,7 +81,7 @@ accessible** pour vérification. Sortie JSON structurée par modification :
 (Claude / Mistral), données Open Data Assemblée nationale + Datan.
 
 ### Image principale
-![Image principale](images/logo.png)
+![Image principale](images/logo.svg)
 
 ### Contributeurs
 - Rémi Mikel

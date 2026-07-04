@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Calque_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 595.3 501.9">
+  <!-- Generator: Adobe Illustrator 30.6.0, SVG Export Plug-In . SVG Version: 2.1.4 Build 109)  -->
+  <defs>
+    <style>
+      .st0 {
+        font-family: Poppins-SemiBold, Poppins;
+        font-size: 171.1px;
+        font-weight: 600;
+      }
+
+      .st1 {
+        fill: #e4572c;
+        letter-spacing: 0em;
+      }
+
+      .st2, .st3 {
+        fill: #301639;
+      }
+
+      .st3 {
+        letter-spacing: 0em;
+      }
+    </style>
+  </defs>
+  <text class="st0" transform="translate(11.4 470.9)"><tspan class="st1" x="0" y="0">a</tspan><tspan class="st3" x="121.2" y="0">linéa</tspan></text>
+  <g>
+    <path class="st2" d="M283.1,172.3v21.1l28.2,34.2v-55.3l88.8-115.3c4-5.2,4.7-12,1.8-17.9s-8.7-9.5-15.2-9.5h-178.9c-6.5,0-12.4,3.6-15.2,9.5s-2.2,12.7,1.8,17.9l88.8,115.3ZM363.9,57.8l-66.6,86.5-66.6-86.5h133.3Z"/>
+    <path class="st2" d="M326.3,185.6l.3,46.6,37.3,48.4h-133.3l49.1-63.7-18.3-22.4-67,87c-4,5.2-4.7,12-1.8,17.9s8.7,9.5,15.2,9.5h178.9c6.5,0,12.4-3.6,15.2-9.5s2.2-12.7-1.8-17.9l-73.8-95.8Z"/>
+  </g>
+</svg>
