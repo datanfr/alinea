@@ -16,6 +16,7 @@
         "symfony/flex": "^2",
         "symfony/framework-bundle": "8.1.*",
         "symfony/runtime": "8.1.*",
+        "symfony/security-csrf": "8.1.*",
         "symfony/twig-bundle": "8.1.*",
         "symfony/yaml": "8.1.*",
         "twig/extra-bundle": "^3.24",

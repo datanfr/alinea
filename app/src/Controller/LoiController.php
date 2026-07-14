@@ -5,7 +5,10 @@ namespace App\Controller;
 use App\Repository\AmendementRepository;
 use App\Repository\DebatRepository;
 use App\Repository\LoiRepository;
+use App\Repository\ResumeIaRepository;
+use App\Repository\SenatRepository;
 use App\Service\AnalyseAmendementIa;
+use App\Service\AnalyseArrierePlan;
 use App\Service\ProvenanceAnalyseur;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -41,8 +44,10 @@ class LoiController extends AbstractController
         LoiRepository $lois,
         AmendementRepository $amendements,
         DebatRepository $debats,
+        SenatRepository $senatRepository,
         ProvenanceAnalyseur $analyseur,
-        AnalyseAmendementIa $analyseIa,
+        ResumeIaRepository $resumes,
+        AnalyseArrierePlan $arrierePlan,
         CacheInterface $cache,
     ): Response {
         $loi = $lois->find($id);
@@ -58,7 +63,9 @@ class LoiController extends AbstractController
         $amendementsParArticle = [];
         $autresParDivision = [];
         $autresTotal = 0;
-        $analysesRestantes = 0;
+        $statutIa = null;
+        $analysesFaites = 0;
+        $totalJuges = 0;
         $topDebat = [];
 
         if ($dossier !== null) {
@@ -98,8 +105,19 @@ class LoiController extends AbstractController
             $juges = $amendements->findParSortPourDossier($dossier['uid'], ['Adopté', 'Rejeté']);
             $adoptes = array_values(array_filter($juges, static fn (array $a): bool => $a['sort'] === 'Adopté'));
 
-            $ia = $analyseIa->analyser($dossier['uid'], $juges);
-            $analysesRestantes = $ia['restantes'];
+            // Les analyses IA sont lues en base uniquement : leur génération
+            // (locale via Ollama, potentiellement longue) se lance en tâche
+            // de fond depuis le bouton de la page, jamais pendant la requête.
+            $ia = ['analyses' => $resumes->analysesAmendements(array_column($juges, 'uid'))];
+            $totalJuges = \count($juges);
+            $analysesFaites = \count($ia['analyses']);
+            if ($totalJuges > 0) {
+                $statutIa = match (true) {
+                    $analysesFaites >= $totalJuges => 'complet',
+                    $arrierePlan->estEnCours($dossier['uid']) => 'en_cours',
+                    default => 'a_faire',
+                };
+            }
 
             $resultat = $analyseur->annoter($articles, $adoptes);
             $articles = $resultat['articles'];
@@ -193,6 +211,32 @@ class LoiController extends AbstractController
             uksort($autresParDivision, fn (string $x, string $y): int => $this->rangDivision($x) <=> $this->rangDivision($y));
         }
 
+        // Volet Sénat : séances publiques importées (alinea, chambre senat) et
+        // amendements Ameli les plus discutés. Même politique de cache que le
+        // classement AN — le classement ne bouge qu'au réimport des CRI.
+        $senat = null;
+        $dossierSenat = $senatRepository->findDossierPourLoi($loi['num']);
+        if ($dossierSenat !== null) {
+            $seancesSenat = $senatRepository->findSeancesPourLoi($dossierSenat['loicod']);
+            $topSenat = [];
+            if ($seancesSenat !== []) {
+                $topSenat = $cache->get(
+                    'debat_senat_top_' . $dossierSenat['loicod'],
+                    static function (ItemInterface $item) use ($senatRepository, $dossierSenat): array {
+                        $item->expiresAfter(86400);
+
+                        return $senatRepository->classerParDebat($dossierSenat['loicod'], $dossierSenat['signet'], 3);
+                    }
+                );
+            }
+            $senat = [
+                'dossier' => $dossierSenat,
+                'seances' => $seancesSenat,
+                'top' => $topSenat,
+                'nbAmendements' => $senatRepository->countAmendements($dossierSenat['signet']),
+            ];
+        }
+
         return $this->render('loi/show.html.twig', [
             'loi' => $loi,
             'articles' => $articles,
@@ -201,9 +245,43 @@ class LoiController extends AbstractController
             'amendementsParArticle' => $amendementsParArticle,
             'autresParDivision' => $autresParDivision,
             'autresTotal' => $autresTotal,
-            'analysesRestantes' => $analysesRestantes,
+            'statutIa' => $statutIa,
+            'analysesFaites' => $analysesFaites,
+            'totalJuges' => $totalJuges,
             'topDebat' => $topDebat,
+            'senat' => $senat,
         ]);
+    }
+
+    /**
+     * Lance en arrière-plan l'analyse IA de tous les amendements jugés du
+     * dossier (bouton de la page de la loi). Sans effet si un traitement est
+     * déjà en cours.
+     */
+    #[Route('/loi/{id}/analyser', name: 'loi_analyser', requirements: ['id' => '[A-Z0-9]{20}'], methods: ['POST'])]
+    public function analyser(
+        string $id,
+        Request $request,
+        LoiRepository $lois,
+        AmendementRepository $amendements,
+        AnalyseArrierePlan $arrierePlan,
+    ): Response {
+        $loi = $lois->find($id);
+
+        if ($loi === null) {
+            throw $this->createNotFoundException(sprintf('Loi « %s » introuvable.', $id));
+        }
+
+        if (!$this->isCsrfTokenValid('analyser' . $id, $request->getPayload()->getString('_token'))) {
+            throw $this->createAccessDeniedException('Jeton CSRF invalide.');
+        }
+
+        $dossier = $amendements->findDossierPourLoi($loi['num']);
+        if ($dossier !== null) {
+            $arrierePlan->lancer($dossier['uid']);
+        }
+
+        return $this->redirectToRoute('loi_show', ['id' => $id]);
     }
 
     /**

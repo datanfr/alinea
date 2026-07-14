@@ -5,6 +5,7 @@ namespace App\Command;
 use App\Repository\AmendementRepository;
 use App\Repository\ResumeIaRepository;
 use App\Service\AnalyseAmendementIa;
+use App\Service\AnalyseArrierePlan;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -19,7 +20,8 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * visite). Permet aussi de régénérer tout un dossier après un changement de
  * prompt, ou avec un autre modèle que celui par défaut.
  *
- *   bin/console app:ia:analyser DLR5L17N50169 --modele=claude-sonnet-5 --regenerer
+ *   bin/console app:ia:analyser DLR5L17N50169 --modele=gemma4:31b --regenerer
+ *   bin/console app:ia:analyser DLR5L17N50169 --modele=claude-haiku-4-5
  */
 #[AsCommand(
     name: 'app:ia:analyser',
@@ -31,6 +33,7 @@ class AnalyserAmendementsCommand extends Command
         private readonly AmendementRepository $amendements,
         private readonly ResumeIaRepository $resumes,
         private readonly AnalyseAmendementIa $analyseIa,
+        private readonly AnalyseArrierePlan $arrierePlan,
     ) {
         parent::__construct();
     }
@@ -39,7 +42,7 @@ class AnalyserAmendementsCommand extends Command
     {
         $this
             ->addArgument('dossier', InputArgument::REQUIRED, 'UID du dossier législatif AN (DLR…)')
-            ->addOption('modele', 'm', InputOption::VALUE_REQUIRED, 'Modèle Anthropic (défaut : celui du service)')
+            ->addOption('modele', 'm', InputOption::VALUE_REQUIRED, 'Modèle IA — « claude-* » via Anthropic, sinon Ollama (défaut : IA_MODELE)')
             ->addOption('regenerer', 'r', InputOption::VALUE_NONE, 'Régénère aussi les analyses déjà en base')
             ->addOption('limite', 'l', InputOption::VALUE_REQUIRED, "Nombre maximal d'analyses à générer");
     }
@@ -50,6 +53,16 @@ class AnalyserAmendementsCommand extends Command
         $dossier = $input->getArgument('dossier');
         $modele = $input->getOption('modele');
         $limite = $input->getOption('limite');
+
+        // Verrou tenu jusqu'à la fin du processus : la page de la loi s'en
+        // sert pour afficher « traitement en cours », et deux traitements du
+        // même dossier ne peuvent pas se chevaucher.
+        $verrou = $this->arrierePlan->verrouiller($dossier);
+        if ($verrou === null) {
+            $io->warning(sprintf('Un traitement du dossier %s est déjà en cours.', $dossier));
+
+            return Command::SUCCESS;
+        }
 
         $juges = $this->amendements->findParSortPourDossier($dossier, ['Adopté', 'Rejeté']);
         if ($juges === []) {

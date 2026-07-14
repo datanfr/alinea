@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="images/logo.svg" alt="Alinéa" width="320">
+  <img src="images/logo.png" alt="Alinéa" width="420">
 </p>
 
 # DEFI.md
@@ -33,9 +33,24 @@ sémantique par IA et synthèse des positions parlementaires (forces en présenc
 concessions, consensus). On part directement des comptes rendus écrits (CRI) : pas de
 transcription vidéo, elle existe déjà sous forme de texte.
 
-**Le périmètre.** On se concentre sur les modifications apportées par l'**Assemblée
-nationale** (commission et séance). Lorsqu'un passage provient d'un retour du Sénat, on le
-signale comme tel, sans analyser le débat sénatorial.
+**Le périmètre.** L'analyse fine (Rayon X, IA) porte sur les modifications apportées par
+l'**Assemblée nationale** (commission et séance). Les **débats du Sénat** sont désormais
+couverts eux aussi : les comptes rendus intégraux de la séance publique sénatoriale sont
+importés (texte des interventions rattaché à chaque loi via le dossier Dosleg), et chaque
+loi affiche ses séances au Sénat ainsi que les amendements sénatoriaux (base Ameli) les
+plus discutés.
+
+**Les sources de débats couvertes.**
+
+| Source | Couverture | Voie d'accès |
+|---|---|---|
+| AN — séance publique | ✅ texte intégral (CRI) | open data `syceronbrut` (`app:import:comptes-rendus`) |
+| AN — commissions | ✅ texte intégral | HTML assemblee-nationale.fr (`app:import:comptes-rendus-commissions`) |
+| Sénat — séance publique | ✅ texte intégral (CRI) | base Débats (structure) + HTML senat.fr balisé `cri:` (`app:import:comptes-rendus-senat`) |
+| Sénat — amendements | ✅ base Ameli (sort, auteurs, mentions dans le CRI) | open data Sénat |
+| Sénat — commissions | 🔗 lien seulement | CR HTML senat.fr, sans rattachement open data exploitable |
+| CMP | ⚠️ partiel | pas de CR en open data (ni AN ni Sénat) ; la lecture des conclusions en séance est couverte par les CRI des deux chambres |
+| Congrès / Conseil constitutionnel | ✖ hors périmètre | pas des débats législatifs ordinaires |
 
 **La loi choisie : la loi « Narcotrafic ».**
 *Loi n° 2025-532 du 13 juin 2025 visant à sortir la France du piège du narcotrafic.*
@@ -84,7 +99,7 @@ accessible** pour vérification. Sortie JSON structurée par modification :
 (Claude / Mistral), données Open Data Assemblée nationale + Datan.
 
 ### Image principale
-![Image principale](images/logo.svg)
+![Image principale](images/logo.png)
 
 ### Contributeurs
 - Rémi Mikel
@@ -108,11 +123,11 @@ Cochez les ressources utilisées en remplaçant `[ ]` par `[x]`.
 - [ ] `premier-ministre-dole` — Dossiers législatifs Légifrance ✺ Premier ministre
 - [x] `premier-ministre-jorf` — Édition ''Lois et décrets'' du Journal officiel ✺ Premier ministre
 - [ ] `senat-dispositifs-textes` — Dispositifs des textes déposés ou adoptés au Sénat ✺ Sénat
-- [ ] `senat-dossiers-legislatifs` — Dossiers législatifs du Sénat ✺ Sénat
-- [ ] `senat-amendements` — Amendements déposés au Sénat ✺ Sénat
+- [x] `senat-dossiers-legislatifs` — Dossiers législatifs du Sénat ✺ Sénat
+- [x] `senat-amendements` — Amendements déposés au Sénat ✺ Sénat
 - [ ] `senat-senateurs` — Sénateurs ✺ Sénat
 - [ ] `senat-questions-gouvernement` — Questions orales et écrites du Sénat au Gouvernement ✺ Sénat
-- [ ] `senat-comptes-rendus` — Comptes rendus de la séance publique au Sénat ✺ Sénat
+- [x] `senat-comptes-rendus` — Comptes rendus de la séance publique au Sénat ✺ Sénat
 - [ ] `an-et-co-database-regroupement-toutes-donnees` — Base de données unifiée Parlement / Législation / Service Public ✺ Assemblée nationale & communauté
 - [ ] `an-et-co-serveur-mcp-regroupement-toutes-donnees` — Serveur MCP  - Accès unifié Parlement / Législation / Service Public ✺ Assemblée nationale & communauté
 - [ ] `an-et-co-api-regroupement-toutes-donnees` — API - Accès unifié Parlement / Législation / Service Public ✺ Assemblée nationale & communauté
@@ -121,5 +136,37 @@ Cochez les ressources utilisées en remplaçant `[ ]` par `[x]`.
 - [ ] `legiwatch-serveur-mcp-parlement` — Serveur MCP Parlement ✺ LegiWatch
 
 ### Galerie
+
+**1. Les lois publiées au Journal officiel.** Point d'entrée : une recherche plein
+texte sur les 13 096 lois publiées, pour retrouver instantanément un texte par thème
+(narcotrafic, sécurité, environnement…).
+
+![Liste des lois et recherche](images/screenshot_liste.png)
+
+**2. La fiche d'une loi — « Au cœur du débat ».** En tête de chaque loi, Alinéa met en
+avant les amendements qui ont suscité les échanges les plus nourris en séance, mesurés à
+l'ampleur de leur discussion dans le compte rendu intégral, avant de dérouler le texte
+complet (ici : 1 676 amendements sur la loi « Narcotrafic »).
+
+![Fiche d'une loi et amendements les plus débattus](images/screenshot_loi.png)
+
+**3. La lecture « Rayon X ».** Interface deux volets : à gauche le texte officiel, dont
+chaque passage issu d'un amendement adopté est surligné ; à droite, au clic sur un
+passage, l'amendement qui lui a donné son sens et l'intention reconstituée.
+
+![Vue Rayon X : texte surligné et amendement à l'origine](images/screenshot_intention.png)
+
+**4. La fiche amendement — « Ce que ça change ».** Pour chaque amendement, une analyse IA
+structurée (intention, concept juridique, score d'impact, ambiguïté) suivie de l'exposé
+sommaire officiel et du résumé du débat en commission — avec lien vers le compte rendu
+intégral brut pour vérification.
+
+![Fiche amendement avec analyse IA et débat](images/screenshot_amendement.png)
+
+**5. Les filtres.** Recherche par mot-clé, statut (adoptés / rejetés), score d'impact
+estimé par l'IA et catégorie de modification (coordination, rédactionnel, précision,
+conséquence, fond…) pour naviguer dans des centaines d'amendements.
+
+![Filtres par mot-clé, statut, impact et catégorie](images/screenshot_filtres.png)
 
 ### Documents

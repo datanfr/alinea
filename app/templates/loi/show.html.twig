@@ -84,6 +84,35 @@
         margin-top: .9rem;
     }
     a.amendements:hover { background: var(--bleu-hover); color: #fff; }
+    .statut-ia {
+        font-family: var(--police);
+        font-size: .9rem;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+        padding: .7rem 1rem;
+        margin: -1rem 0 2rem;
+    }
+    .statut-ia.complet { border-left: 4px solid #2e7d32; color: #2e7d32; background: #f1f8f1; }
+    .statut-ia.en-cours { border-left: 4px solid var(--bleu); background: var(--fond); }
+    .statut-ia.a-faire {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+        border-left: 4px solid var(--gris);
+        background: var(--fond);
+    }
+    .statut-ia.a-faire button {
+        font-family: var(--police);
+        font-size: .9rem;
+        color: #fff;
+        background: var(--bleu);
+        border: none;
+        border-radius: .25rem;
+        padding: .5rem 1rem;
+        cursor: pointer;
+    }
+    .statut-ia.a-faire button:hover { background: var(--bleu-hover); }
     p.sans-amendement {
         font-family: var(--police);
         font-size: .85rem;
@@ -170,6 +199,68 @@
         font-size: .82rem;
         white-space: nowrap;
         text-decoration: none;
+    }
+    /* Encadré « Les débats au Sénat » : même gabarit, liseré bordeaux Sénat. */
+    .encadre-senat {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-left: 4px solid #8b1e3f;
+        border-radius: .25rem;
+        padding: 1.1rem 1.5rem 1.3rem;
+        margin: 0 0 2rem;
+        font-family: var(--police);
+    }
+    .encadre-senat h2 {
+        font-size: .95rem;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        color: #8b1e3f;
+        margin: 0 0 .3rem;
+    }
+    .encadre-senat h3 {
+        font-size: .85rem;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        color: #8b1e3f;
+        margin: 1.1rem 0 .5rem;
+    }
+    .encadre-senat .encadre-intro {
+        font-size: .85rem;
+        color: var(--gris);
+        margin: 0 0 .9rem;
+        max-width: 48rem;
+    }
+    .encadre-senat .liste-debat li::before { color: #8b1e3f; }
+    .liste-seances-senat {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem .8rem;
+    }
+    .liste-seances-senat li {
+        background: var(--fond);
+        border-radius: .25rem;
+        padding: .45rem .8rem;
+        font-size: .88rem;
+    }
+    .liste-seances-senat a { font-weight: 600; text-decoration: none; }
+    .liste-seances-senat a:hover { text-decoration: underline; }
+    .liste-seances-senat .seance-mesure {
+        display: block;
+        font-size: .78rem;
+        color: var(--gris);
+    }
+    .encadre-senat .senat-source {
+        font-size: .8rem;
+        color: var(--gris);
+        margin: 1rem 0 0;
+    }
+    .encadre-senat .senat-indisponible {
+        font-size: .85rem;
+        color: var(--gris);
+        margin: 0;
     }
     /* Cible d'une ancre cliquée depuis l'encadré : flash de mise en évidence. */
     .surligne-cible {
@@ -678,6 +769,22 @@
         {% endif %}
     </header>
 
+    {% if statutIa == 'complet' %}
+        <p class="statut-ia complet">✓ Tous les amendements ont été traités
+            ({{ totalJuges }} analyse{{ totalJuges > 1 ? 's' : '' }} IA).</p>
+    {% elseif statutIa == 'en_cours' %}
+        <p class="statut-ia en-cours">Les amendements de cette loi sont en cours de traitement —
+            {{ analysesFaites }}/{{ totalJuges }} analysés. Rechargez la page pour suivre l'avancement.</p>
+    {% elseif statutIa == 'a_faire' %}
+        <form class="statut-ia a-faire" method="post" action="{{ path('loi_analyser', {id: loi.id}) }}">
+            <input type="hidden" name="_token" value="{{ csrf_token('analyser' ~ loi.id) }}">
+            <span>Cette loi n'a pas encore été traitée{% if analysesFaites > 0 %}
+                entièrement ({{ analysesFaites }}/{{ totalJuges }} amendements analysés){% endif %},
+                cliquez ici pour le faire, cela peut prendre quelques heures.</span>
+            <button type="submit">Lancer l'analyse IA</button>
+        </form>
+    {% endif %}
+
     {% if topDebat is not empty %}
         <aside class="encadre-debat">
             <h2>Au cœur du débat</h2>
@@ -698,6 +805,48 @@
         </aside>
     {% endif %}
 
+    {% if senat %}
+        <aside class="encadre-senat">
+            <h2>Les débats au Sénat</h2>
+            {% if senat.seances is not empty %}
+                <p class="encadre-intro">Le texte a aussi été discuté en séance publique au Sénat —
+                    comptes rendus intégraux importés depuis senat.fr, rattachés à la loi via le
+                    dossier sénatorial.</p>
+                <ul class="liste-seances-senat">
+                    {% for s in senat.seances %}
+                        <li>
+                            <a href="{{ s.url_page }}" target="_blank" rel="noopener">Séance du {{ s.date_seance|date('d/m/Y') }} ↗</a>
+                            <span class="seance-mesure">{{ s.nb_paroles|format_number(locale='fr') }} paroles
+                                · {{ s.nb_orateurs }} orateur{{ s.nb_orateurs > 1 ? 's' }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+                {% if senat.top is not empty %}
+                    <h3>Au cœur du débat sénatorial</h3>
+                    <ol class="liste-debat">
+                        {% for d in senat.top %}
+                            <li>
+                                <a class="lien-ancre" href="{{ d.url }}" target="_blank" rel="noopener">
+                                    <span class="badge {{ 'Adopté' in d.sort ? 'adopte' : 'rejete' }}">{{ d.sort }}</span>
+                                    <span class="debat-num">n° {{ d.numero }}</span>
+                                    {% if d.auteur %}<span class="debat-auteur">{{ d.auteur }}</span>{% endif %}
+                                </a>
+                                <span class="debat-detail">{{ d.nb_cit }} citations dans le CRI · senat.fr ↗</span>
+                            </li>
+                        {% endfor %}
+                    </ol>
+                {% endif %}
+            {% else %}
+                <p class="senat-indisponible">Le dossier sénatorial existe mais ses comptes rendus de
+                    séance n'ont pas encore été importés
+                    (<code>app:import:comptes-rendus-senat --loi {{ loi.num }}</code>).</p>
+            {% endif %}
+            <p class="senat-source">{{ senat.nbAmendements|format_number(locale='fr') }} amendements déposés
+                au Sénat (séance et commission) ·
+                <a href="{{ senat.dossier.url }}" target="_blank" rel="noopener">Dossier législatif sur senat.fr ↗</a></p>
+        </aside>
+    {% endif %}
+
     {% if loi.visas %}
         <details class="visas">
             <summary>Visas et préambule</summary>
@@ -708,11 +857,7 @@
     {% if provenance is not empty %}
         <p class="legende-rayon-x">Rayon X : les passages surlignés proviennent d'amendements adoptés
             à l'Assemblée nationale. En regard, dans la colonne de droite, l'amendement à l'origine de
-            chaque passage — cliquez sur un passage ou sa note pour les relier.
-            {%- if analysesRestantes > 0 %}
-                Les résumés IA sont générés progressivement : {{ analysesRestantes }} amendement{{ analysesRestantes > 1 ? 's' : '' }}
-                encore en attente d'analyse (rechargez la page pour continuer).
-            {%- endif %}</p>
+            chaque passage — cliquez sur un passage ou sa note pour les relier.</p>
     {% endif %}
 
     {% if provenance is not empty or autresParDivision is not empty %}

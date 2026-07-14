@@ -2,10 +2,12 @@
 
 namespace App\Service;
 
-use Anthropic\Client;
+use Anthropic\Client as AnthropicClient;
 use Anthropic\Core\Exceptions\APIConnectionException;
 use Anthropic\Core\Exceptions\APIStatusException;
 use Anthropic\Core\Exceptions\RateLimitException;
+use GuzzleHttp\Client as HttpClient;
+use GuzzleHttp\Exception\GuzzleException;
 use App\Repository\AmendementRepository;
 use App\Repository\DebatRepository;
 use App\Repository\ResumeIaRepository;
@@ -14,9 +16,12 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
  * Analyse IA des amendements adoptés et rejetés d'un dossier : pour chacun,
- * l'exposé sommaire et l'extrait du débat en séance sont envoyés à Claude
- * Haiku qui renvoie — au format JSON garanti par un schéma (structured
- * outputs) — ce que l'amendement change (< 120 caractères), un résumé
+ * l'exposé sommaire et l'extrait du débat en séance sont envoyés à un modèle
+ * — local via Ollama (Gemma 4) ou distant via Anthropic selon le nom du
+ * modèle : « claude-* » passe par Anthropic, le reste par Ollama ; le modèle
+ * par défaut se règle avec la variable d'environnement IA_MODELE — qui
+ * renvoie, au format JSON garanti par un schéma (structured outputs),
+ * ce que l'amendement change (< 120 caractères), un résumé
  * détaillé si pertinent, l'INTENTION réellement poursuivie par l'auteur,
  * un degré d'ambiguïté entre l'objectif affiché et l'effet réel, une
  * catégorie et un score d'impact sur 100.
@@ -33,9 +38,8 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  */
 class AnalyseAmendementIa
 {
-    private const MODELE = 'claude-haiku-4-5';
-
-    // Plafond d'appels API par chargement de page (~1-2 s par appel).
+    // Plafond d'appels par chargement de page (une génération locale peut
+    // prendre plusieurs secondes selon la machine et la taille du modèle).
     private const MAX_GENERATIONS = 10;
 
     // L'extrait de débat est tronqué au-delà (les débats fleuves n'apportent
@@ -128,16 +132,24 @@ class AnalyseAmendementIa
         'additionalProperties' => false,
     ];
 
-    private readonly Client $client;
+    private readonly HttpClient $ollama;
+    private ?AnthropicClient $anthropic = null;
 
     public function __construct(
-        #[Autowire(env: 'ANTHROPIC_KEY')] string $anthropicKey,
+        #[Autowire(env: 'IA_MODELE')] private readonly string $modele,
+        #[Autowire(env: 'OLLAMA_URL')] string $ollamaUrl,
+        #[Autowire(env: 'ANTHROPIC_KEY')] private readonly string $anthropicKey,
         private readonly ResumeIaRepository $resumes,
         private readonly DebatRepository $debats,
         private readonly AmendementRepository $amendements,
         private readonly LoggerInterface $logger,
     ) {
-        $this->client = new Client(apiKey: $anthropicKey);
+        $this->ollama = new HttpClient([
+            'base_uri' => rtrim($ollamaUrl, '/') . '/',
+            // Génération locale : laisser le temps au modèle de répondre,
+            // surtout au premier appel (chargement du modèle en mémoire).
+            'timeout' => 300,
+        ]);
     }
 
     /**
@@ -178,7 +190,7 @@ class AnalyseAmendementIa
                 break; // erreur API : on n'insiste pas, la prochaine visite réessaiera
             }
 
-            $this->resumes->enregistrerAmendement($amendement['uid'], $analyse, self::MODELE);
+            $this->resumes->enregistrerAmendement($amendement['uid'], $analyse, $this->modele);
 
             $analyses[$amendement['uid']] = $analyse;
             ++$generes;
@@ -198,7 +210,7 @@ class AnalyseAmendementIa
      */
     public function regenerer(array $amendement, array $contexte, ?string $modele = null): ?array
     {
-        $modele ??= self::MODELE;
+        $modele ??= $this->modele;
         $analyse = $this->genererAnalyse($amendement, $contexte, $modele);
 
         if ($analyse !== null) {
@@ -213,14 +225,65 @@ class AnalyseAmendementIa
      *
      * @return array{resume: string, resume_detaille: ?string, intention: ?string, ambiguite: ?int, categorie: ?string, score_impact: ?int}|null
      */
-    private function genererAnalyse(array $amendement, array $contexte, string $modele = self::MODELE): ?array
+    private function genererAnalyse(array $amendement, array $contexte, ?string $modele = null): ?array
+    {
+        $modele ??= $this->modele;
+        $prompt = $this->construirePrompt($amendement, $contexte);
+
+        $json = str_starts_with($modele, 'claude-')
+            ? $this->appelerAnthropic($modele, $prompt, $amendement['uid'])
+            : $this->appelerOllama($modele, $prompt, $amendement['uid']);
+
+        return $json === null ? null : $this->normaliser(json_decode($json, true));
+    }
+
+    /** Réponse JSON brute du modèle local, ou null en cas d'échec. */
+    private function appelerOllama(string $modele, string $prompt, string $uid): ?string
     {
         try {
-            $message = $this->client->messages->create(
+            $reponse = $this->ollama->post('api/chat', [
+                'json' => [
+                    'model' => $modele,
+                    'stream' => false,
+                    'messages' => [
+                        ['role' => 'system', 'content' => self::SYSTEM],
+                        ['role' => 'user', 'content' => $prompt],
+                    ],
+                    // Structured outputs Ollama : la réponse est contrainte
+                    // au schéma JSON.
+                    'format' => self::SCHEMA,
+                    'options' => [
+                        'num_predict' => 2000,
+                        'temperature' => 0.2,
+                    ],
+                ],
+            ]);
+        } catch (GuzzleException $e) {
+            $this->logger->error('Analyse IA : appel Ollama en échec', [
+                'amendement' => $uid,
+                'exception' => $e,
+            ]);
+
+            return null;
+        }
+
+        $corps = json_decode((string) $reponse->getBody(), true);
+        $contenu = $corps['message']['content'] ?? null;
+
+        return \is_string($contenu) ? $contenu : null;
+    }
+
+    /** Réponse JSON brute du modèle Anthropic, ou null en cas d'échec. */
+    private function appelerAnthropic(string $modele, string $prompt, string $uid): ?string
+    {
+        $this->anthropic ??= new AnthropicClient(apiKey: $this->anthropicKey);
+
+        try {
+            $message = $this->anthropic->messages->create(
                 model: $modele,
                 maxTokens: 2000,
                 system: self::SYSTEM,
-                messages: [['role' => 'user', 'content' => $this->construirePrompt($amendement, $contexte)]],
+                messages: [['role' => 'user', 'content' => $prompt]],
                 outputConfig: ['format' => ['type' => 'json_schema', 'schema' => self::SCHEMA]],
             );
         } catch (RateLimitException $e) {
@@ -229,7 +292,7 @@ class AnalyseAmendementIa
             return null;
         } catch (APIStatusException|APIConnectionException $e) {
             $this->logger->error('Analyse IA : appel Anthropic en échec', [
-                'amendement' => $amendement['uid'],
+                'amendement' => $uid,
                 'exception' => $e,
             ]);
 
@@ -238,7 +301,7 @@ class AnalyseAmendementIa
 
         foreach ($message->content as $block) {
             if ($block->type === 'text') {
-                return $this->normaliser(json_decode($block->text, true));
+                return $block->text;
             }
         }
 
