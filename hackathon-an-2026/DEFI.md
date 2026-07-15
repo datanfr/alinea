@@ -50,7 +50,9 @@ plus discutés.
 | Sénat — amendements | ✅ base Ameli (sort, auteurs, mentions dans le CRI) | open data Sénat |
 | Sénat — commissions | 🔗 lien seulement | CR HTML senat.fr, sans rattachement open data exploitable |
 | CMP | ⚠️ partiel | pas de CR en open data (ni AN ni Sénat) ; la lecture des conclusions en séance est couverte par les CRI des deux chambres |
-| Congrès / Conseil constitutionnel | ✖ hors périmètre | pas des débats législatifs ordinaires |
+| Congrès | ✖ hors périmètre | pas des débats législatifs ordinaires |
+| Jurisprudence — Cour de cassation et cours d'appel | ✅ décisions citant chaque loi | API Judilibre / PISTE (`app:import:jurisprudences`), bloc « La loi devant les juges » |
+| Jurisprudence — Conseil constitutionnel | 🔜 données en base (Dosleg + JORF) | décision DC, sens, saisine par loi — bloc à venir |
 
 **La loi choisie : la loi « Narcotrafic ».**
 *Loi n° 2025-532 du 13 juin 2025 visant à sortir la France du piège du narcotrafic.*
