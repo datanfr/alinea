@@ -724,17 +724,24 @@
         max-width: 46rem;
     }
     .bloc-division { margin-top: 2rem; }
-    /* Amendements rattachés à un article : repliés sous son texte. */
-    details.amendements-article {
-        margin-top: 1rem;
-        border-top: 1px dashed var(--bordure);
-        padding-top: .75rem;
-    }
-    details.amendements-article summary {
-        font-family: var(--police);
-        font-size: .85rem;
-        color: var(--bleu);
+    /* Amendements examinés sur un article mais non localisés dans un passage :
+       repliés dans la colonne de droite, à la fin de leur article. */
+    .note-article > summary {
+        list-style: none;
         cursor: pointer;
+        font-family: var(--police);
+        font-size: .74rem;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        color: var(--gris);
+        padding: .5rem .9rem;
+    }
+    .note-article > summary::-webkit-details-marker { display: none; }
+    .note-article > summary::after { content: ' ▸'; color: #e8b500; }
+    .note-article[open] > summary::after { content: ' ▾'; }
+    .note-article .grille-cartes {
+        grid-template-columns: 1fr;
+        margin: .2rem .9rem .9rem;
     }
     .bloc-division .titre-division {
         font-family: var(--police);
@@ -951,7 +958,7 @@
                                     {%- if d.numero %} — n° {{ d.numero }}{% endif %} ↗
                                 </a>
                                 {% if d.date_decision %}<span>{{ d.date_decision|date('d/m/Y') }}</span>{% endif %}
-                                {% if d.solution %}<span class="juris-solution">{{ d.solution }}</span>{% endif %}
+                                {% if d.solution %}<span class="juris-solution">{{ d.solution_libelle }}</span>{% endif %}
                             </div>
                             {% if d.sommaire %}<p class="juris-sommaire">{{ d.sommaire }}</p>{% endif %}
                         </li>
@@ -979,7 +986,10 @@
             chaque passage — cliquez sur un passage ou sa note pour les relier.</p>
     {% endif %}
 
-    {% if provenance is not empty or autresParDivision is not empty %}
+    {% set colonneDroite = provenance is not empty or amendementsParArticle is not empty %}
+    {% set aDesAmendements = colonneDroite or autresParDivision is not empty %}
+
+    {% if aDesAmendements %}
         {% set libellesCategorie = {
             coordination: 'Coordination', redactionnel: 'Rédactionnel',
             simplification: 'Simplification', correction: 'Correction',
@@ -1031,15 +1041,6 @@
                     <article class="article" id="article-{{ article.num }}">
                         <h2>Article {{ article.num }}</h2>
                         <div>{{ article.contenu|raw }}</div>
-                        {% set cartes = amendementsParArticle[article.num] ?? [] %}
-                        {% if cartes is not empty %}
-                            <details class="bloc-division amendements-article">
-                                <summary>Amendements examinés sur cet article <span class="compte">{{ cartes|length }}</span></summary>
-                                <div class="grille-cartes">
-                                    {% for a in cartes %}{{ ui.carteAmendement(a) }}{% endfor %}
-                                </div>
-                            </details>
-                        {% endif %}
                     </article>
                 {% endfor %}
             {% endif %}
@@ -1049,9 +1050,20 @@
             {% endif %}
         </div>
 
-        {% if provenance is not empty %}
+        {% if colonneDroite %}
             <aside class="colonne-notes" id="colonne-notes">
-                <p class="titre-colonne">Amendements à l'origine du texte</p>
+                {% if provenance is not empty %}
+                    <p class="titre-colonne">Amendements à l'origine du texte</p>
+                {% endif %}
+                {% for num, cartes in amendementsParArticle %}
+                    <details class="note note-article bloc-division" data-article="{{ num }}">
+                        <summary>Amendements examinés sur l'article {{ num }}
+                            <span class="compte">{{ cartes|length }}</span></summary>
+                        <div class="grille-cartes">
+                            {% for a in cartes %}{{ ui.carteAmendement(a) }}{% endfor %}
+                        </div>
+                    </details>
+                {% endfor %}
             </aside>
         {% endif %}
     </div>
@@ -1083,7 +1095,7 @@
         </section>
     {% endif %}
 
-    {% if provenance is not empty %}
+    {% if colonneDroite %}
         <script type="application/json" id="donnees-provenance">{{ provenance|json_encode(constant('JSON_HEX_TAG'))|raw }}</script>
         <script>
             const amendements = JSON.parse(document.getElementById('donnees-provenance').textContent);
@@ -1184,20 +1196,38 @@
                 }
             }
 
+            // Amendements examinés sur un article mais non localisés dans un
+            // passage : blocs repliables déjà rendus dans la colonne, alignés
+            // sur la fin de leur article. Un dépliage/repliage reflow la colonne.
+            const notesArticle = [...colonne.querySelectorAll('.note-article')]
+                .map((note) => ({ note, article: document.getElementById('article-' + note.dataset.article) }))
+                .filter(({ article }) => article);
+            notesArticle.forEach(({ note }) => note.addEventListener('toggle', () => positionnerNotes()));
+
+            // Flux de positionnement unifié : les notes de marge s'ancrent sur
+            // le haut de leur passage, les blocs d'article sur la fin de leur
+            // article. Tri par ordonnée, empilement anti-collision commun.
+            const blocsPositionnables = [
+                ...paires.map(({ passage, note }) => ({ note, ancre: () => passage.getBoundingClientRect().top })),
+                ...notesArticle.map(({ article, note }) => ({ note, ancre: () => article.getBoundingClientRect().bottom })),
+            ];
+
             // Aligne chaque note sur son passage ; en cas de collision, la note
             // suivante est repoussée vers le bas. Ignoré en mono-colonne (mobile).
             const monoColonne = window.matchMedia('(max-width: 60rem)');
             function positionnerNotes() {
                 if (monoColonne.matches) {
-                    for (const { note } of paires) note.style.top = '';
+                    for (const { note } of blocsPositionnables) note.style.top = '';
                     colonne.style.minHeight = '';
                     return;
                 }
                 const origine = layout.getBoundingClientRect().top + window.scrollY;
+                const visibles = blocsPositionnables
+                    .filter(({ note }) => !note.hidden)
+                    .map(({ note, ancre }) => ({ note, cible: ancre() + window.scrollY - origine }))
+                    .sort((a, b) => a.cible - b.cible);
                 let curseur = 0;
-                for (const { passage, note } of paires) {
-                    if (note.hidden) continue;
-                    const cible = passage.getBoundingClientRect().top + window.scrollY - origine;
+                for (const { note, cible } of visibles) {
                     const top = Math.max(cible, curseur);
                     note.style.top = top + 'px';
                     curseur = top + note.offsetHeight + 16;
@@ -1215,6 +1245,7 @@
             }
 
             function majNav() {
+                if (!navBarre) return;
                 const total = passagesVisibles().length;
                 navBarre.hidden = total === 0;
                 navCompteur.textContent = total;
@@ -1249,8 +1280,10 @@
                 navCompteur.textContent = (idx + 1) + ' / ' + visibles.length;
             }
 
-            document.getElementById('nav-suiv').addEventListener('click', () => naviguer(1));
-            document.getElementById('nav-prec').addEventListener('click', () => naviguer(-1));
+            if (navBarre) {
+                document.getElementById('nav-suiv').addEventListener('click', () => naviguer(1));
+                document.getElementById('nav-prec').addEventListener('click', () => naviguer(-1));
+            }
             majNav();
 
             // Exposé pour la barre de filtres (sort, impact, catégorie).
@@ -1267,7 +1300,7 @@
         </script>
     {% endif %}
 
-    {% if provenance is not empty or autresParDivision is not empty %}
+    {% if aDesAmendements %}
         <script>
             (() => {
                 const filtres = { sort: '', impactMin: 0, categorie: '', motcle: '' };

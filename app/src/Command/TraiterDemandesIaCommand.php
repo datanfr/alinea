@@ -3,12 +3,14 @@
 namespace App\Command;
 
 use App\Repository\AmendementRepository;
+use App\Repository\ResumeIaRepository;
 use App\Service\AnalyseAmendementIa;
 use App\Service\AnalyseArrierePlan;
 use GuzzleHttp\Client as HttpClient;
 use GuzzleHttp\Exception\GuzzleException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -31,8 +33,14 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  * prod restent alignés. Un amendement absent de la base locale (retard de
  * sync) est signalé et sauté — relancer après app:sync:canutes.
  *
+ * Avec des dossiers en argument, la commande ignore les demandes ouvertes et
+ * traite ces dossiers-là : les analyses manquantes en base locale, ou toutes
+ * avec --regenerer — le moyen de repousser en prod des analyses refaites avec
+ * un meilleur modèle (upsert côté API).
+ *
  *   bin/console app:ia:demandes
- *   bin/console app:ia:demandes --modele=gemma4:27b --limite=50
+ *   bin/console app:ia:demandes --modele=claude-haiku-4-5 --limite=50
+ *   bin/console app:ia:demandes DLR5L15N36531 --regenerer
  */
 #[AsCommand(
     name: 'app:ia:demandes',
@@ -51,6 +59,7 @@ class TraiterDemandesIaCommand extends Command
         #[Autowire(env: 'IA_API_JETON')] private readonly string $jeton,
         #[Autowire(env: 'IA_MODELE')] private readonly string $modeleDefaut,
         private readonly AmendementRepository $amendements,
+        private readonly ResumeIaRepository $resumes,
         private readonly AnalyseAmendementIa $analyseIa,
         private readonly AnalyseArrierePlan $arrierePlan,
     ) {
@@ -66,7 +75,9 @@ class TraiterDemandesIaCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('modele', 'm', InputOption::VALUE_REQUIRED, 'Modèle IA local (défaut : IA_MODELE)')
+            ->addArgument('dossiers', InputArgument::IS_ARRAY, 'Dossiers AN (DLR…) à traiter directement, sans passer par les demandes')
+            ->addOption('modele', 'm', InputOption::VALUE_REQUIRED, 'Modèle IA (défaut : IA_MODELE)')
+            ->addOption('regenerer', 'r', InputOption::VALUE_NONE, 'Régénère aussi les analyses déjà en base (dossiers explicites uniquement)')
             ->addOption('limite', 'l', InputOption::VALUE_REQUIRED, "Nombre maximal d'analyses par dossier");
     }
 
@@ -82,18 +93,18 @@ class TraiterDemandesIaCommand extends Command
 
         $modele = $input->getOption('modele') ?? $this->modeleDefaut;
         $limite = $input->getOption('limite') !== null ? (int) $input->getOption('limite') : null;
+        $dossiers = $input->getArgument('dossiers');
 
-        try {
-            $reponse = $this->http->get('api/ia/demandes');
-            $demandes = json_decode((string) $reponse->getBody(), true)['demandes'] ?? [];
-        } catch (GuzzleException $e) {
-            $io->error('Récupération des demandes en échec : ' . $e->getMessage());
+        $demandes = $dossiers !== []
+            ? $this->demandesPourDossiers($io, $dossiers, $input->getOption('regenerer'))
+            : $this->demandesDeLaProd($io);
 
+        if ($demandes === null) {
             return Command::FAILURE;
         }
 
         if ($demandes === []) {
-            $io->success('Aucune demande en attente.');
+            $io->success($dossiers !== [] ? 'Rien à analyser pour ces dossiers.' : 'Aucune demande en attente.');
 
             return Command::SUCCESS;
         }
@@ -108,6 +119,61 @@ class TraiterDemandesIaCommand extends Command
         }
 
         return $echec ? Command::FAILURE : Command::SUCCESS;
+    }
+
+    /**
+     * Demandes en attente listées par l'API de la prod, ou null en cas d'échec.
+     *
+     * @return list<array{dossier: string, loi: string, manquants: list<string>}>|null
+     */
+    private function demandesDeLaProd(SymfonyStyle $io): ?array
+    {
+        try {
+            $reponse = $this->http->get('api/ia/demandes');
+        } catch (GuzzleException $e) {
+            $io->error('Récupération des demandes en échec : ' . $e->getMessage());
+
+            return null;
+        }
+
+        return json_decode((string) $reponse->getBody(), true)['demandes'] ?? [];
+    }
+
+    /**
+     * Pseudo-demandes pour des dossiers passés en argument : tous les
+     * amendements jugés avec --regenerer, sinon seulement ceux sans analyse
+     * en base locale (miroir de la prod puisque chaque génération est
+     * poussée). Null si un uid de dossier est invalide.
+     *
+     * @param list<string> $dossiers
+     *
+     * @return list<array{dossier: string, loi: string, manquants: list<string>}>|null
+     */
+    private function demandesPourDossiers(SymfonyStyle $io, array $dossiers, bool $regenerer): ?array
+    {
+        $demandes = [];
+        foreach ($dossiers as $dossier) {
+            if (preg_match('/^[A-Z0-9]+$/', $dossier) !== 1) {
+                $io->error(sprintf('Dossier invalide : « %s » (attendu : DLR…).', $dossier));
+
+                return null;
+            }
+
+            $uids = array_column(
+                $this->amendements->findParSortPourDossier($dossier, ['Adopté', 'Rejeté']),
+                'uid'
+            );
+            if (!$regenerer) {
+                $faites = $this->resumes->analysesAmendements($uids);
+                $uids = array_values(array_filter($uids, static fn (string $uid): bool => !isset($faites[$uid])));
+            }
+
+            if ($uids !== []) {
+                $demandes[] = ['dossier' => $dossier, 'loi' => '—', 'manquants' => $uids];
+            }
+        }
+
+        return $demandes;
     }
 
     /**

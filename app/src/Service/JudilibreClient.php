@@ -3,7 +3,7 @@
 namespace App\Service;
 
 use GuzzleHttp\Client as HttpClient;
-use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Exception\BadResponseException;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
@@ -21,6 +21,11 @@ class JudilibreClient
 {
     private const URL_API = 'https://api.piste.gouv.fr/cassation/judilibre/v1.0/';
     private const URL_OAUTH = 'https://oauth.piste.gouv.fr/api/oauth/token';
+    // Le sandbox PISTE est un espace séparé (applications et souscriptions
+    // propres) servant un jeu de données Judilibre anonymisé : utile pour
+    // valider la chaîne, pas pour la production.
+    private const URL_API_SANDBOX = 'https://sandbox-api.piste.gouv.fr/cassation/judilibre/v1.0/';
+    private const URL_OAUTH_SANDBOX = 'https://sandbox-oauth.piste.gouv.fr/api/oauth/token';
     private const PAGE_SIZE = 50;
 
     private readonly HttpClient $http;
@@ -31,6 +36,7 @@ class JudilibreClient
         #[Autowire(env: 'JUDILIBRE_CLIENT_ID')] private readonly string $clientId,
         #[Autowire(env: 'JUDILIBRE_CLIENT_SECRET')] private readonly string $clientSecret,
         #[Autowire(env: 'JUDILIBRE_API_KEY')] private readonly string $apiKey,
+        #[Autowire(env: 'bool:JUDILIBRE_SANDBOX')] private readonly bool $sandbox = false,
     ) {
         $this->http = new HttpClient(['timeout' => 30]);
     }
@@ -43,8 +49,13 @@ class JudilibreClient
     /**
      * Décisions citant une loi, par pertinence décroissante.
      *
-     * La recherche porte sur l'expression exacte « loi n° 2025-532 » : c'est
-     * la forme canonique de citation dans les arrêts. Limite assumée : les
+     * La recherche porte sur l'expression exacte « loi n° 2025 532 » — le
+     * numéro est passé SANS tiret : un « 2025-532 » dans la requête brute
+     * déclenche le détecteur de numéros de pourvoi de Judilibre, qui écrase
+     * la recherche plein texte par un filtre wildcard sur le champ number
+     * (zéro résultat). L'analyseur plein texte découpant de toute façon
+     * « 2025-532 » en deux tokens, la phrase exacte matche bien la citation
+     * canonique « loi n° 2025-532 du … » des arrêts. Limite assumée : les
      * décisions qui ne citent que l'article de code modifié (sans le numéro
      * de la loi) échappent à la requête.
      *
@@ -57,13 +68,20 @@ class JudilibreClient
 
         for ($page = 0; $page < $maxPages; ++$page) {
             $reponse = $this->requete('search', [
-                'query' => sprintf('loi n° %s', $numLoi),
+                'query' => sprintf('loi n° %s', str_replace('-', ' ', $numLoi)),
                 'operator' => 'exact',
                 'sort' => 'score',
                 'order' => 'desc',
                 'page_size' => self::PAGE_SIZE,
                 'page' => $page,
             ]);
+
+            // Quand la phrase exacte ne matche rien, Judilibre « relâche » la
+            // requête en OR sur les tokens (relaxed: true) et renvoie tout le
+            // corpus (~380 000 décisions) : aucune décision ne cite la loi.
+            if ($reponse['relaxed'] ?? false) {
+                return ['total' => 0, 'decisions' => []];
+            }
 
             $total = (int) ($reponse['total'] ?? 0);
             foreach ($reponse['results'] ?? [] as $r) {
@@ -102,31 +120,54 @@ class JudilibreClient
             );
         }
 
-        $entetes = $this->clientId !== '' && $this->clientSecret !== ''
-            ? ['Authorization' => 'Bearer ' . $this->jeton()]
-            : ['KeyId' => $this->apiKey];
+        // PISTE renvoie des 401 transitoires (jeton invalidé avant son
+        // expires_in, propagation du nouveau jeton à la passerelle…) : on
+        // redemande un jeton et on rejoue la requête après une pause
+        // croissante, plusieurs fois, avant d'abandonner. Même traitement
+        // pour un éventuel 429 (limitation de débit).
+        for ($essai = 0; ; ++$essai) {
+            $entetes = $this->clientId !== '' && $this->clientSecret !== ''
+                ? ['Authorization' => 'Bearer ' . $this->jeton()]
+                : ['KeyId' => $this->apiKey];
 
-        try {
-            $reponse = $this->http->get(self::URL_API . $chemin, [
-                'headers' => $entetes + ['Accept' => 'application/json'],
-                'query' => $query,
-            ]);
-        } catch (ClientException $e) {
-            $code = $e->getResponse()->getStatusCode();
-            if (\in_array($code, [400, 401, 403], true)) {
-                throw new \RuntimeException(sprintf(
-                    'Judilibre a refusé la requête (HTTP %d). Vérifier sur piste.gouv.fr que '
-                    . 'l\'application est bien abonnée à l\'API Judilibre et que le mode '
-                    . 'd\'authentification correspond aux identifiants fournis (%s).',
-                    $code,
-                    $this->clientId !== '' ? 'OAuth' : 'clé API / en-tête KeyId'
-                ), previous: $e);
+            try {
+                $reponse = $this->http->get(($this->sandbox ? self::URL_API_SANDBOX : self::URL_API) . $chemin, [
+                    'headers' => $entetes + ['Accept' => 'application/json'],
+                    'query' => $query,
+                ]);
+
+                return json_decode((string) $reponse->getBody(), true) ?? [];
+            } catch (BadResponseException $e) {
+                $code = $e->getResponse()->getStatusCode();
+                // 400/401/429 : la passerelle PISTE signale un jeton absent ou
+                // invalidé par un 400 à corps vide (« Unable to find token »)
+                // autant que par un 401 — nouveau jeton et pause. 5xx : elle
+                // flanche sous charge soutenue (502 constatés) — même pause,
+                // sans toucher au jeton. Un vrai 400 métier épuiserait les
+                // trois tentatives avant de remonter.
+                if ($essai < 3 && (\in_array($code, [400, 401, 429], true) || $code >= 500)) {
+                    if ($code < 500) {
+                        $this->jeton = null;
+                    }
+                    sleep(1 << $essai);
+
+                    continue;
+                }
+                if (\in_array($code, [400, 401, 403], true)) {
+                    throw new \RuntimeException(sprintf(
+                        'Judilibre a refusé la requête (HTTP %d, environnement %s). Un 403 avec un jeton '
+                        . 'valide signifie que l\'application PISTE n\'est pas souscrite à l\'API Judilibre '
+                        . 'dans cet environnement (piste.gouv.fr → APIs → Judilibre → Souscrire). '
+                        . 'Authentification utilisée : %s.',
+                        $code,
+                        $this->sandbox ? 'sandbox' : 'production',
+                        $this->clientId !== '' ? 'OAuth' : 'clé API / en-tête KeyId'
+                    ), previous: $e);
+                }
+
+                throw $e;
             }
-
-            throw $e;
         }
-
-        return json_decode((string) $reponse->getBody(), true) ?? [];
     }
 
     /**
@@ -139,7 +180,7 @@ class JudilibreClient
         }
 
         try {
-            $reponse = $this->http->post(self::URL_OAUTH, [
+            $reponse = $this->http->post($this->sandbox ? self::URL_OAUTH_SANDBOX : self::URL_OAUTH, [
                 'form_params' => [
                     'grant_type' => 'client_credentials',
                     'client_id' => $this->clientId,
@@ -147,7 +188,7 @@ class JudilibreClient
                     'scope' => 'openid',
                 ],
             ]);
-        } catch (ClientException $e) {
+        } catch (BadResponseException $e) {
             throw new \RuntimeException(
                 'Authentification OAuth PISTE refusée (invalid_client ?) : vérifier le couple '
                 . 'JUDILIBRE_CLIENT_ID / JUDILIBRE_CLIENT_SECRET — ce sont les « identifiants OAuth » '

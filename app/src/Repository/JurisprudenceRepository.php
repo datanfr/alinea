@@ -31,6 +31,24 @@ class JurisprudenceRepository
         'allciv' => 'Chambres civiles',
     ];
 
+    /** Taxonomie « solution » de l'API Judilibre (GET /taxonomy?id=solution). */
+    private const SOLUTIONS = [
+        'cassation' => 'Cassation',
+        'rejet' => 'Rejet',
+        'annulation' => 'Annulation',
+        'avis' => 'Avis',
+        'decheance' => 'Déchéance',
+        'designation' => 'Désignation de juridiction',
+        'irrecevabilite' => 'Irrecevabilité',
+        'nonlieu' => 'Non-lieu à statuer',
+        'qpc' => 'QPC renvoi',
+        'qpcother' => 'QPC',
+        'rabat' => 'Rabat',
+        'reglement' => 'Règlement des juges',
+        'renvoi' => 'Renvoi',
+        'other' => 'Autre',
+    ];
+
     public function __construct(private readonly Connection $connection)
     {
     }
@@ -79,6 +97,7 @@ class JurisprudenceRepository
         return array_map(static fn (array $r): array => $r + [
             'juridiction_libelle' => self::JURIDICTIONS[$r['juridiction']] ?? $r['juridiction'],
             'chambre_libelle' => self::CHAMBRES[$r['chambre']] ?? $r['chambre'],
+            'solution_libelle' => self::SOLUTIONS[$r['solution']] ?? $r['solution'],
             'url' => 'https://www.courdecassation.fr/decision/' . $r['judilibre_id'],
         ], $rows);
     }
