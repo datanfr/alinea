@@ -2,6 +2,7 @@
 
 namespace App\Repository;
 
+use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 
 /**
@@ -19,6 +20,37 @@ class LoiRepository
     // Légifrance utilise 2999-01-01 comme date inconnue : à écarter du tri.
     private const DATE_TRI = "NULLIF(" . self::DATE_TEXTE . ", '2999-01-01')";
 
+    /**
+     * L'état de vigueur vit sur la version consolidée (LEGITEXT), pas sur la
+     * publication au JO (JORFTEXT) : on les relie par le CID de la chronique.
+     * Une loi peut avoir plusieurs versions consolidées (MODIFIE puis
+     * VIGUEUR…) : seule la plus récente — DATE_DEBUT maximal — fait foi.
+     * Les lois sans version consolidée (anciennes, lois de finances…) sont
+     * réputées en vigueur.
+     */
+    private const CTE_ETATS = <<<'SQL'
+        WITH etats AS (
+            SELECT DISTINCT ON (cid) cid, etat
+            FROM (
+                SELECT data->'META'->'META_SPEC'->'META_TEXTE_CHRONICLE'->>'CID' AS cid,
+                       data->'META'->'META_SPEC'->'META_TEXTE_VERSION'->>'ETAT' AS etat,
+                       data->'META'->'META_SPEC'->'META_TEXTE_VERSION'->>'DATE_DEBUT' AS debut
+                FROM legifrance.texte_version
+                WHERE nature = 'LOI' AND id LIKE 'LEGITEXT%'
+            ) versions
+            ORDER BY cid, debut DESC NULLS LAST
+        )
+        SQL;
+
+    private const ETATS_HORS_VIGUEUR = ['ABROGE', 'PERIME', 'VIGUEUR_DIFF', 'ANNULE'];
+
+    private const LIBELLES_HORS_VIGUEUR = [
+        'ABROGE' => 'Abrogée',
+        'PERIME' => 'Périmée',
+        'VIGUEUR_DIFF' => 'Pas encore en vigueur',
+        'ANNULE' => 'Annulée',
+    ];
+
     private const MOIS = [
         1 => 'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
         'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre',
@@ -31,39 +63,54 @@ class LoiRepository
     /**
      * Liste paginée des lois publiées au JO, les plus récentes d'abord.
      *
+     * Par défaut, seules les lois en vigueur sont listées ; $inclureHorsVigueur
+     * ajoute les abrogées, périmées et celles à l'entrée en vigueur différée.
+     *
      * @return array{lois: list<array<string, mixed>>, total: int}
      */
-    public function search(?string $query, int $page, int $perPage): array
+    public function search(?string $query, int $page, int $perPage, bool $inclureHorsVigueur = false): array
     {
         $where = "nature = 'LOI' AND id LIKE 'JORFTEXT%'";
         $params = [];
+        $types = [];
 
         if ($query !== null && trim($query) !== '') {
             $where .= " AND text_search @@ websearch_to_tsquery('french', :query)";
             $params['query'] = trim($query);
         }
 
+        if (!$inclureHorsVigueur) {
+            $where .= " AND coalesce(e.etat, 'VIGUEUR') NOT IN (:horsVigueur)";
+            $params['horsVigueur'] = self::ETATS_HORS_VIGUEUR;
+            $types['horsVigueur'] = ArrayParameterType::STRING;
+        }
+
+        $from = 'legifrance.texte_version LEFT JOIN etats e ON e.cid = id';
+
         $total = (int) $this->connection->fetchOne(
-            "SELECT count(*) FROM legifrance.texte_version WHERE $where",
-            $params
+            self::CTE_ETATS . " SELECT count(*) FROM $from WHERE $where",
+            $params,
+            $types
         );
 
         $lois = $this->connection->fetchAllAssociative(
-            sprintf(
-                'SELECT id, %s AS titre, %s AS num, %s AS date_texte
-                 FROM legifrance.texte_version
+            self::CTE_ETATS . sprintf(
+                ' SELECT id, %s AS titre, %s AS num, %s AS date_texte, e.etat
+                 FROM %s
                  WHERE %s
                  ORDER BY %s DESC NULLS LAST, id DESC
                  LIMIT %d OFFSET %d',
                 self::TITRE,
                 self::NUM,
                 self::DATE_TEXTE,
+                $from,
                 $where,
                 self::DATE_TRI,
                 $perPage,
                 ($page - 1) * $perPage
             ),
-            $params
+            $params,
+            $types
         );
 
         return ['lois' => array_map($this->hydrate(...), $lois), 'total' => $total];
@@ -75,13 +122,13 @@ class LoiRepository
     public function find(string $id): ?array
     {
         $loi = $this->connection->fetchAssociative(
-            sprintf(
-                "SELECT id, %s AS titre, %s AS num, %s AS date_texte,
+            self::CTE_ETATS . sprintf(
+                " SELECT id, %s AS titre, %s AS num, %s AS date_texte, e.etat,
                         data->'META'->'META_SPEC'->'META_TEXTE_CHRONICLE'->>'ORIGINE_PUBLI' AS origine_publi,
                         data->'META'->'META_COMMUN'->>'ID_ELI' AS eli,
                         data->'VISAS'->>'CONTENU' AS visas,
                         data->'SIGNATAIRES'->>'CONTENU' AS signataires
-                 FROM legifrance.texte_version
+                 FROM legifrance.texte_version LEFT JOIN etats e ON e.cid = id
                  WHERE id = :id AND nature = 'LOI'",
                 self::TITRE,
                 self::NUM,
@@ -122,6 +169,7 @@ class LoiRepository
     {
         $loi['id'] = trim($loi['id']);
         $loi['date_fr'] = $this->formatDate($loi['date_texte'] ?? null);
+        $loi['etat_libelle'] = self::LIBELLES_HORS_VIGUEUR[$loi['etat'] ?? ''] ?? null;
 
         return $loi;
     }

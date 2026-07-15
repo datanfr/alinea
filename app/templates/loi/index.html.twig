@@ -26,6 +26,26 @@
         cursor: pointer;
     }
     form.recherche button:hover { background: var(--bleu-hover); }
+    label.filtre-vigueur {
+        display: flex;
+        align-items: center;
+        gap: .45rem;
+        font-family: var(--police);
+        font-size: .85rem;
+        color: var(--gris);
+        margin: -0.75rem 0 1rem;
+        cursor: pointer;
+    }
+    ul.lois li.hors-vigueur { border-left-color: #b1b1b1; }
+    ul.lois li.hors-vigueur a { color: var(--gris); }
+    ul.lois .badge-vigueur {
+        font-size: .72rem;
+        padding: .05rem .5rem;
+        border-radius: 2rem;
+        background: #eee;
+        color: #5d5d5d;
+        white-space: nowrap;
+    }
     p.compteur {
         font-family: var(--police);
         font-size: .85rem;
@@ -74,11 +94,21 @@
 
     <form class="recherche" action="{{ path('loi_index') }}" method="get">
         <input type="search" name="q" value="{{ query }}" placeholder="Rechercher une loi (ex. : narcotrafic, sécurité, environnement…)" aria-label="Rechercher une loi">
+        {% if horsVigueur %}<input type="hidden" name="hors_vigueur" value="1">{% endif %}
         <button type="submit">Rechercher</button>
+    </form>
+
+    <form action="{{ path('loi_index') }}" method="get">
+        {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+        <label class="filtre-vigueur">
+            <input type="checkbox" name="hors_vigueur" value="1" {{ horsVigueur ? 'checked' }} onchange="this.form.submit()">
+            Inclure les lois qui ne sont plus (ou pas encore) en vigueur — abrogées, périmées, entrée en vigueur différée
+        </label>
     </form>
 
     <p class="compteur">
         {{ total }} loi{{ total > 1 ? 's' }}
+        {%- if not horsVigueur %} en vigueur{% endif %}
         {%- if query %} pour « {{ query }} »{% endif %}
     </p>
 
@@ -87,11 +117,12 @@
     {% else %}
         <ul class="lois">
             {% for loi in lois %}
-                <li>
+                <li{% if loi.etat_libelle %} class="hors-vigueur"{% endif %}>
                     <a href="{{ path('loi_show', {id: loi.id}) }}">
                         <div class="meta">
                             {% if loi.num %}<span>Loi n° {{ loi.num }}</span>{% endif %}
                             {% if loi.date_fr %}<span>{{ loi.date_fr }}</span>{% endif %}
+                            {% if loi.etat_libelle %}<span class="badge-vigueur">{{ loi.etat_libelle }}</span>{% endif %}
                         </div>
                         {{ loi.titre ?? loi.id }}
                     </a>
@@ -101,12 +132,13 @@
 
         {% if pages > 1 %}
             <nav class="pagination">
+                {% set paginationParams = horsVigueur ? {q: query, hors_vigueur: 1} : {q: query} %}
                 {% if page > 1 %}
-                    <a href="{{ path('loi_index', {q: query, page: page - 1}) }}">← Précédent</a>
+                    <a href="{{ path('loi_index', paginationParams|merge({page: page - 1})) }}">← Précédent</a>
                 {% endif %}
                 <span>Page {{ page }} / {{ pages }}</span>
                 {% if page < pages %}
-                    <a href="{{ path('loi_index', {q: query, page: page + 1}) }}">Suivant →</a>
+                    <a href="{{ path('loi_index', paginationParams|merge({page: page + 1})) }}">Suivant →</a>
                 {% endif %}
             </nav>
         {% endif %}

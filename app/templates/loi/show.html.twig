@@ -122,6 +122,17 @@
         padding: .5rem .9rem;
         margin: .9rem 0 0;
     }
+    /* Bandeau des lois hors vigueur (abrogée, périmée, vigueur différée). */
+    header.loi .bandeau-vigueur {
+        display: inline-block;
+        font-family: var(--police);
+        font-size: .85rem;
+        color: #5d5d5d;
+        background: #eee;
+        border-radius: .25rem;
+        padding: .35rem .8rem;
+        margin: .4rem 0 0;
+    }
     /* Encadré « Au cœur du débat » : les amendements les plus discutés. */
     .encadre-debat {
         background: #fff;
@@ -755,6 +766,11 @@
 
     <header class="loi">
         <h1>{{ loi.titre ?? loi.id }}</h1>
+        {% if loi.etat_libelle %}
+            <p class="bandeau-vigueur">{{ loi.etat_libelle == 'Pas encore en vigueur'
+                ? 'Cette loi est publiée mais son entrée en vigueur est différée.'
+                : 'Cette loi n\'est plus en vigueur (' ~ loi.etat_libelle|lower ~ ').' }}</p>
+        {% endif %}
         <div class="meta">
             {% if loi.origine_publi %}{{ loi.origine_publi }}{% endif %}
             {% if loi.eli %}<a href="{{ loi.eli }}" target="_blank" rel="noopener">Voir sur Légifrance ↗</a>{% endif %}

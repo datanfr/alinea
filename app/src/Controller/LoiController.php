@@ -26,13 +26,15 @@ class LoiController extends AbstractController
     {
         $query = $request->query->get('q');
         $page = max(1, $request->query->getInt('page', 1));
+        $horsVigueur = $request->query->getBoolean('hors_vigueur');
 
-        $resultat = $lois->search($query, $page, self::PAR_PAGE);
+        $resultat = $lois->search($query, $page, self::PAR_PAGE, $horsVigueur);
 
         return $this->render('loi/index.html.twig', [
             'lois' => $resultat['lois'],
             'total' => $resultat['total'],
             'query' => $query,
+            'horsVigueur' => $horsVigueur,
             'page' => $page,
             'pages' => max(1, (int) ceil($resultat['total'] / self::PAR_PAGE)),
         ]);
