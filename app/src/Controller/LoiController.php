@@ -4,13 +4,17 @@ namespace App\Controller;
 
 use App\Repository\AmendementRepository;
 use App\Repository\DebatRepository;
+use App\Repository\DemandeAnalyseRepository;
+use App\Repository\JurisprudenceRepository;
 use App\Repository\LoiRepository;
 use App\Repository\ResumeIaRepository;
 use App\Repository\SenatRepository;
 use App\Service\AnalyseAmendementIa;
 use App\Service\AnalyseArrierePlan;
+use App\Service\NotificationAnalyse;
 use App\Service\ProvenanceAnalyseur;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
@@ -47,10 +51,13 @@ class LoiController extends AbstractController
         AmendementRepository $amendements,
         DebatRepository $debats,
         SenatRepository $senatRepository,
+        JurisprudenceRepository $jurisprudences,
         ProvenanceAnalyseur $analyseur,
         ResumeIaRepository $resumes,
         AnalyseArrierePlan $arrierePlan,
+        DemandeAnalyseRepository $demandes,
         CacheInterface $cache,
+        #[Autowire(env: 'bool:IA_ANALYSE_DIFFEREE')] bool $analyseDifferee,
     ): Response {
         $loi = $lois->find($id);
 
@@ -117,6 +124,7 @@ class LoiController extends AbstractController
                 $statutIa = match (true) {
                     $analysesFaites >= $totalJuges => 'complet',
                     $arrierePlan->estEnCours($dossier['uid']) => 'en_cours',
+                    $analyseDifferee && $demandes->enAttente($dossier['uid']) => 'demande',
                     default => 'a_faire',
                 };
             }
@@ -239,6 +247,16 @@ class LoiController extends AbstractController
             ];
         }
 
+        // Jurisprudence Judilibre : lue en base uniquement (l'import est une
+        // commande), bloc absent tant que la loi n'a pas été synchronisée.
+        $jurisprudence = null;
+        if ($jurisprudences->estDisponible()) {
+            $sync = $jurisprudences->syncPourLoi($loi['num']);
+            if ($sync !== null) {
+                $jurisprudence = $sync + ['decisions' => $jurisprudences->findPourLoi($loi['num'], 5)];
+            }
+        }
+
         return $this->render('loi/show.html.twig', [
             'loi' => $loi,
             'articles' => $articles,
@@ -252,13 +270,17 @@ class LoiController extends AbstractController
             'totalJuges' => $totalJuges,
             'topDebat' => $topDebat,
             'senat' => $senat,
+            'jurisprudence' => $jurisprudence,
         ]);
     }
 
     /**
-     * Lance en arrière-plan l'analyse IA de tous les amendements jugés du
-     * dossier (bouton de la page de la loi). Sans effet si un traitement est
-     * déjà en cours.
+     * Bouton « Lancer l'analyse IA » de la page de la loi. Deux modes selon
+     * IA_ANALYSE_DIFFEREE :
+     *   - direct (défaut) : app:ia:analyser part en arrière-plan sur la
+     *     machine (Ollama local), sans effet si un traitement est en cours ;
+     *   - différé (prod, pas d'Ollama) : la demande est enregistrée en base
+     *     et un email est envoyé — l'agent local la traitera via /api/ia.
      */
     #[Route('/loi/{id}/analyser', name: 'loi_analyser', requirements: ['id' => '[A-Z0-9]{20}'], methods: ['POST'])]
     public function analyser(
@@ -267,6 +289,9 @@ class LoiController extends AbstractController
         LoiRepository $lois,
         AmendementRepository $amendements,
         AnalyseArrierePlan $arrierePlan,
+        DemandeAnalyseRepository $demandes,
+        NotificationAnalyse $notification,
+        #[Autowire(env: 'bool:IA_ANALYSE_DIFFEREE')] bool $analyseDifferee,
     ): Response {
         $loi = $lois->find($id);
 
@@ -280,7 +305,16 @@ class LoiController extends AbstractController
 
         $dossier = $amendements->findDossierPourLoi($loi['num']);
         if ($dossier !== null) {
-            $arrierePlan->lancer($dossier['uid']);
+            if ($analyseDifferee) {
+                // L'email ne part qu'à la création : les clics suivants
+                // retombent sur la demande déjà ouverte.
+                if ($demandes->deposer($dossier['uid'], $loi['id'])) {
+                    $juges = $amendements->findParSortPourDossier($dossier['uid'], ['Adopté', 'Rejeté']);
+                    $notification->demandeDeposee($loi, $dossier['uid'], \count($juges));
+                }
+            } else {
+                $arrierePlan->lancer($dossier['uid']);
+            }
         }
 
         return $this->redirectToRoute('loi_show', ['id' => $id]);

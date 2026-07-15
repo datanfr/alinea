@@ -46,7 +46,7 @@ class AnalyseAmendementIa
     // plus rien au résumé et coûtent des tokens).
     private const MAX_DEBAT = 8000;
 
-    private const CATEGORIES = [
+    public const CATEGORIES = [
         'coordination', 'redactionnel', 'simplification', 'correction',
         'precision', 'consequence', 'coherence', 'fond',
     ];

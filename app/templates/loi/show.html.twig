@@ -273,6 +273,73 @@
         color: var(--gris);
         margin: 0;
     }
+    /* Encadré « La loi devant les juges » : jurisprudence Judilibre. */
+    .encadre-juris {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-left: 4px solid #6a4c93;
+        border-radius: .25rem;
+        padding: 1.1rem 1.5rem 1.3rem;
+        margin: 0 0 2rem;
+        font-family: var(--police);
+    }
+    .encadre-juris h2 {
+        font-size: .95rem;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        color: #6a4c93;
+        margin: 0 0 .3rem;
+    }
+    .encadre-juris .encadre-intro {
+        font-size: .85rem;
+        color: var(--gris);
+        margin: 0 0 .9rem;
+        max-width: 48rem;
+    }
+    .liste-juris {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: .5rem;
+    }
+    .liste-juris li {
+        background: var(--fond);
+        border-radius: .25rem;
+        padding: .55rem .8rem;
+        font-size: .88rem;
+    }
+    .liste-juris .juris-tete {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: .5rem .8rem;
+    }
+    .liste-juris .juris-tete a { font-weight: 600; text-decoration: none; }
+    .liste-juris .juris-tete a:hover { text-decoration: underline; }
+    .liste-juris .juris-solution {
+        font-size: .72rem;
+        padding: .1rem .55rem;
+        border-radius: 2rem;
+        background: #ece5f6;
+        color: #6a4c93;
+        white-space: nowrap;
+    }
+    .liste-juris .juris-sommaire {
+        font-size: .82rem;
+        color: var(--gris);
+        margin: .25rem 0 0;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    .encadre-juris .juris-source {
+        font-size: .8rem;
+        color: var(--gris);
+        margin: .9rem 0 0;
+    }
     /* Cible d'une ancre cliquée depuis l'encadré : flash de mise en évidence. */
     .surligne-cible {
         animation: flash-cible 2s ease-out;
@@ -791,6 +858,10 @@
     {% elseif statutIa == 'en_cours' %}
         <p class="statut-ia en-cours">Les amendements de cette loi sont en cours de traitement —
             {{ analysesFaites }}/{{ totalJuges }} analysés. Rechargez la page pour suivre l'avancement.</p>
+    {% elseif statutIa == 'demande' %}
+        <p class="statut-ia en-cours">L'analyse de cette loi a été demandée
+            {%- if analysesFaites > 0 %} ({{ analysesFaites }}/{{ totalJuges }} amendements déjà analysés){% endif %} —
+            elle sera disponible prochainement, repassez d'ici quelques heures.</p>
     {% elseif statutIa == 'a_faire' %}
         <form class="statut-ia a-faire" method="post" action="{{ path('loi_analyser', {id: loi.id}) }}">
             <input type="hidden" name="_token" value="{{ csrf_token('analyser' ~ loi.id) }}">
@@ -860,6 +931,38 @@
             <p class="senat-source">{{ senat.nbAmendements|format_number(locale='fr') }} amendements déposés
                 au Sénat (séance et commission) ·
                 <a href="{{ senat.dossier.url }}" target="_blank" rel="noopener">Dossier législatif sur senat.fr ↗</a></p>
+        </aside>
+    {% endif %}
+
+    {% if jurisprudence %}
+        <aside class="encadre-juris">
+            <h2>La loi devant les juges</h2>
+            {% if jurisprudence.total > 0 %}
+                <p class="encadre-intro">{{ jurisprudence.total|format_number(locale='fr') }}
+                    décision{{ jurisprudence.total > 1 ? 's' }} de justice cite{{ jurisprudence.total > 1 ? 'nt' }}
+                    expressément cette loi (recherche Judilibre, Cour de cassation et cours d'appel).
+                    Les plus récentes :</p>
+                <ul class="liste-juris">
+                    {% for d in jurisprudence.decisions %}
+                        <li>
+                            <div class="juris-tete">
+                                <a href="{{ d.url }}" target="_blank" rel="noopener">
+                                    {{ d.juridiction_libelle }}{% if d.chambre_libelle %}, {{ d.chambre_libelle|lower }}{% endif %}
+                                    {%- if d.numero %} — n° {{ d.numero }}{% endif %} ↗
+                                </a>
+                                {% if d.date_decision %}<span>{{ d.date_decision|date('d/m/Y') }}</span>{% endif %}
+                                {% if d.solution %}<span class="juris-solution">{{ d.solution }}</span>{% endif %}
+                            </div>
+                            {% if d.sommaire %}<p class="juris-sommaire">{{ d.sommaire }}</p>{% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="encadre-intro">Aucune décision de justice ne cite encore expressément cette loi
+                    — habituel pour un texte récent, le contentieux met plusieurs années à se former.</p>
+            {% endif %}
+            <p class="juris-source">Source : API Judilibre (open data de la Cour de cassation) —
+                décisions citant « loi n° {{ loi.num }} » · synchronisé le {{ jurisprudence.maj|date('d/m/Y') }}.</p>
         </aside>
     {% endif %}
 
