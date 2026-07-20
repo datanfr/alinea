@@ -1082,29 +1082,35 @@
                 <button type="button" data-sort="adopte">Adoptés</button>
                 <button type="button" data-sort="rejete">Rejetés</button>
             </div>
-            <label class="filtre-impact" title="Masque les amendements sous ce score d'impact (ceux encore en attente d'analyse sont masqués dès que le seuil dépasse zéro)">
-                Impact
-                <input type="range" id="filtre-impact" min="0" max="100" step="5" value="0">
-                <output id="filtre-impact-valeur">tous</output>
-            </label>
-            <select id="filtre-categorie" aria-label="Filtrer par catégorie">
-                <option value="">Toutes les catégories</option>
-                {% for cle, libelle in libellesCategorie %}
-                    <option value="{{ cle }}">{{ libelle }}</option>
-                {% endfor %}
-            </select>
+            {# Filtres nourris par l'IA : sans amendement analysé, ils n'ont
+               aucune prise, on les masque. #}
+            {% if analysesFaites > 0 %}
+                <label class="filtre-impact" title="Masque les amendements sous ce score d'impact (ceux encore en attente d'analyse sont masqués dès que le seuil dépasse zéro)">
+                    Impact
+                    <input type="range" id="filtre-impact" min="0" max="100" step="5" value="0">
+                    <output id="filtre-impact-valeur">tous</output>
+                </label>
+                <select id="filtre-categorie" aria-label="Filtrer par catégorie">
+                    <option value="">Toutes les catégories</option>
+                    {% for cle, libelle in libellesCategorie %}
+                        <option value="{{ cle }}">{{ libelle }}</option>
+                    {% endfor %}
+                </select>
+            {% endif %}
             <span class="filtre-compteur"><b id="filtre-compte">—</b> amendement<span id="filtre-compte-pluriel">s</span> affiché<span id="filtre-compte-pluriel2">s</span></span>
         </div>
 
-        <div class="legende-impact">
-            <span class="legende-titre">Score d'impact</span> — estimé par l'IA, l'ampleur du changement apporté (ou proposé) au texte :
-            <ol class="echelle-impact">
-                <li><b>0–20</b>technique</li>
-                <li><b>21–50</b>ajustement limité</li>
-                <li><b>51–79</b>changement notable</li>
-                <li><b>80–100</b>changement majeur</li>
-            </ol>
-        </div>
+        {% if analysesFaites > 0 %}
+            <div class="legende-impact">
+                <span class="legende-titre">Score d'impact</span> — estimé par l'IA, l'ampleur du changement apporté (ou proposé) au texte :
+                <ol class="echelle-impact">
+                    <li><b>0–20</b>technique</li>
+                    <li><b>21–50</b>ajustement limité</li>
+                    <li><b>51–79</b>changement notable</li>
+                    <li><b>80–100</b>changement majeur</li>
+                </ol>
+            </div>
+        {% endif %}
     {% endif %}
 
     {% import _self as ui %}
@@ -1466,18 +1472,25 @@
                     });
                 });
 
+                // Filtres impact et catégorie absents tant qu'aucun amendement
+                // n'a été analysé par l'IA (cf. condition analysesFaites côté Twig).
                 const curseur = document.getElementById('filtre-impact');
                 const valeur = document.getElementById('filtre-impact-valeur');
-                curseur.addEventListener('input', () => {
-                    filtres.impactMin = parseInt(curseur.value, 10);
-                    valeur.textContent = filtres.impactMin > 0 ? '≥ ' + filtres.impactMin : 'tous';
-                    appliquer();
-                });
+                if (curseur) {
+                    curseur.addEventListener('input', () => {
+                        filtres.impactMin = parseInt(curseur.value, 10);
+                        valeur.textContent = filtres.impactMin > 0 ? '≥ ' + filtres.impactMin : 'tous';
+                        appliquer();
+                    });
+                }
 
-                document.getElementById('filtre-categorie').addEventListener('change', (e) => {
-                    filtres.categorie = e.target.value;
-                    appliquer();
-                });
+                const selectCategorie = document.getElementById('filtre-categorie');
+                if (selectCategorie) {
+                    selectCategorie.addEventListener('change', (e) => {
+                        filtres.categorie = e.target.value;
+                        appliquer();
+                    });
+                }
 
                 // Recherche par mot-clé (débounce léger pour ne pas filtrer à
                 // chaque frappe sur les longues listes).
