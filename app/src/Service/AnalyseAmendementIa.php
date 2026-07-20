@@ -11,6 +11,7 @@ use GuzzleHttp\Exception\GuzzleException;
 use App\Repository\AmendementRepository;
 use App\Repository\DebatRepository;
 use App\Repository\ResumeIaRepository;
+use App\Repository\SenatRepository;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
@@ -142,6 +143,7 @@ class AnalyseAmendementIa
         private readonly ResumeIaRepository $resumes,
         private readonly DebatRepository $debats,
         private readonly AmendementRepository $amendements,
+        private readonly SenatRepository $senat,
         private readonly LoggerInterface $logger,
     ) {
         $this->ollama = new HttpClient([
@@ -153,11 +155,49 @@ class AnalyseAmendementIa
     }
 
     /**
+     * Jugés (adoptés/rejetés) des deux chambres pour un dossier AN : les
+     * amendements du dossier, plus ceux du dossier sénatorial de la même loi
+     * (pont par le numéro de loi promulguée). C'est le périmètre couvert par
+     * les analyses IA — commandes, demandes différées et API.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function jugesPourDossier(string $dossierUid): array
+    {
+        $juges = $this->amendements->findParSortPourDossier($dossierUid, ['Adopté', 'Rejeté']);
+
+        $dossierSenat = $this->senat->findDossierPourLoi($this->amendements->numLoiPourDossier($dossierUid));
+        if ($dossierSenat !== null) {
+            $juges = array_merge($juges, $this->senat->findJugesPourDossier($dossierSenat['signet']));
+        }
+
+        return $juges;
+    }
+
+    /**
+     * Contexte de recherche des débats d'un dossier, par chambre : séances
+     * publiques et CR de commission côté AN, loicod du dossier sénatorial
+     * pour retrouver les extraits dans les CRI du Sénat.
+     *
+     * @return array{seances: list<string>, crCommissions: list<string>, senatLoicod: ?string}
+     */
+    public function contextePourDossier(string $dossierUid): array
+    {
+        $dossierSenat = $this->senat->findDossierPourLoi($this->amendements->numLoiPourDossier($dossierUid));
+
+        return [
+            'seances' => $this->amendements->findSeancesPourDossier($dossierUid),
+            'crCommissions' => $this->amendements->findCrCommissionsPourDossier($dossierUid),
+            'senatLoicod' => $dossierSenat['loicod'] ?? null,
+        ];
+    }
+
+    /**
      * Analyses IA des amendements donnés (adoptés/rejetés d'un dossier),
      * indexées par uid : celles déjà en base, complétées par les manquantes
      * générées à la volée (au plus MAX_GENERATIONS par appel).
      *
-     * @param list<array<string, mixed>> $amendements lignes de AmendementRepository::findParSortPourDossier()
+     * @param list<array<string, mixed>> $amendements lignes de findParSortPourDossier() (AN) ou findJugesPourDossier() (Sénat)
      *
      * @return array{analyses: array<string, array<string, mixed>>, restantes: int}
      */
@@ -180,10 +220,7 @@ class AnalyseAmendementIa
                 break;
             }
 
-            $contexte ??= [
-                'seances' => $this->amendements->findSeancesPourDossier($dossierUid),
-                'crCommissions' => $this->amendements->findCrCommissionsPourDossier($dossierUid),
-            ];
+            $contexte ??= $this->contextePourDossier($dossierUid);
 
             $analyse = $this->genererAnalyse($amendement, $contexte);
             if ($analyse === null) {
@@ -206,7 +243,7 @@ class AnalyseAmendementIa
      * Génère (ou régénère) puis persiste l'analyse d'un amendement, avec un
      * modèle au choix — utilisé par la commande de pré-génération app:ia:analyser.
      *
-     * @param array{seances: list<string>, crCommissions: list<string>} $contexte
+     * @param array{seances: list<string>, crCommissions: list<string>, senatLoicod: ?string} $contexte
      */
     public function regenerer(array $amendement, array $contexte, ?string $modele = null): ?array
     {
@@ -221,7 +258,7 @@ class AnalyseAmendementIa
     }
 
     /**
-     * @param array{seances: list<string>, crCommissions: list<string>} $contexte
+     * @param array{seances: list<string>, crCommissions: list<string>, senatLoicod: ?string} $contexte
      *
      * @return array{resume: string, resume_detaille: ?string, intention: ?string, ambiguite: ?int, categorie: ?string, score_impact: ?int}|null
      */
@@ -309,7 +346,7 @@ class AnalyseAmendementIa
     }
 
     /**
-     * @param array{seances: list<string>, crCommissions: list<string>} $contexte
+     * @param array{seances: list<string>, crCommissions: list<string>, senatLoicod: ?string} $contexte
      */
     private function construirePrompt(array $amendement, array $contexte): string
     {
@@ -327,13 +364,20 @@ class AnalyseAmendementIa
             $parties[] = "Exposé sommaire :\n" . $this->aplatir($amendement['expose_sommaire']);
         }
 
-        $debat = $this->debats->findExtrait(
-            $amendement['seance_ref'] ?? null,
-            $amendement['numero'],
-            $contexte['seances'],
-            $amendement['date_depot'] ?? null,
-            $contexte['crCommissions']
-        );
+        // L'extrait de débat se cherche dans les comptes rendus de la chambre
+        // de l'amendement : CRI et CR de commission AN, ou CRI du Sénat
+        // (ancrés par le loicod ; rien pour les COM-, non importés).
+        $debat = ($amendement['chambre'] ?? 'an') === 'senat'
+            ? ($contexte['senatLoicod'] !== null
+                ? $this->senat->findExtrait($contexte['senatLoicod'], $amendement['numero'], $amendement['date_depot'] ?? null)
+                : null)
+            : $this->debats->findExtrait(
+                $amendement['seance_ref'] ?? null,
+                $amendement['numero'],
+                $contexte['seances'],
+                $amendement['date_depot'] ?? null,
+                $contexte['crCommissions']
+            );
 
         if ($debat !== null) {
             $paroles = array_map(

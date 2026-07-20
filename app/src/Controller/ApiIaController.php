@@ -2,7 +2,6 @@
 
 namespace App\Controller;
 
-use App\Repository\AmendementRepository;
 use App\Repository\DemandeAnalyseRepository;
 use App\Repository\ResumeIaRepository;
 use App\Service\AnalyseAmendementIa;
@@ -39,15 +38,15 @@ class ApiIaController extends AbstractController
     public function demandes(
         Request $request,
         DemandeAnalyseRepository $demandes,
-        AmendementRepository $amendements,
+        AnalyseAmendementIa $analyseIa,
         ResumeIaRepository $resumes,
     ): JsonResponse {
         $this->verifierJeton($request);
 
         $liste = [];
         foreach ($demandes->listerEnAttente() as $demande) {
-            $juges = $amendements->findParSortPourDossier($demande['dossier_uid'], ['Adopté', 'Rejeté']);
-            $uids = array_column($juges, 'uid');
+            // Jugés des deux chambres : uids AN (AMANR…) et Sénat (SEN…).
+            $uids = array_column($analyseIa->jugesPourDossier($demande['dossier_uid']), 'uid');
             $faites = $resumes->analysesAmendements($uids);
 
             $liste[] = [
@@ -111,8 +110,9 @@ class ApiIaController extends AbstractController
     }
 
     /**
-     * Même forme de garde-fous que côté génération : uid AMANR5 plausible,
-     * scores bornés à [0, 100], catégorie dans la liste fermée ou nulle.
+     * Même forme de garde-fous que côté génération : uid plausible (AMANR5…
+     * pour l'AN, SEN… pour le Sénat), scores bornés à [0, 100], catégorie
+     * dans la liste fermée ou nulle.
      *
      * @return array{resume: string, resume_detaille: ?string, intention: ?string, ambiguite: int, categorie: ?string, score_impact: int}|null
      */

@@ -2,7 +2,6 @@
 
 namespace App\Command;
 
-use App\Repository\AmendementRepository;
 use App\Repository\ResumeIaRepository;
 use App\Service\AnalyseAmendementIa;
 use App\Service\AnalyseArrierePlan;
@@ -15,10 +14,11 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
- * Pré-génère les analyses IA des amendements adoptés et rejetés d'un dossier,
- * sans attendre les chargements de page (plafonnés à MAX_GENERATIONS par
- * visite). Permet aussi de régénérer tout un dossier après un changement de
- * prompt, ou avec un autre modèle que celui par défaut.
+ * Pré-génère les analyses IA des amendements adoptés et rejetés d'un dossier
+ * (AN et, quand la loi a un dossier sénatorial, Sénat), sans attendre les
+ * chargements de page (plafonnés à MAX_GENERATIONS par visite). Permet aussi
+ * de régénérer tout un dossier après un changement de prompt, ou avec un
+ * autre modèle que celui par défaut.
  *
  *   bin/console app:ia:analyser DLR5L17N50169 --modele=gemma4:31b --regenerer
  *   bin/console app:ia:analyser DLR5L17N50169 --modele=claude-haiku-4-5
@@ -30,7 +30,6 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 class AnalyserAmendementsCommand extends Command
 {
     public function __construct(
-        private readonly AmendementRepository $amendements,
         private readonly ResumeIaRepository $resumes,
         private readonly AnalyseAmendementIa $analyseIa,
         private readonly AnalyseArrierePlan $arrierePlan,
@@ -64,7 +63,9 @@ class AnalyserAmendementsCommand extends Command
             return Command::SUCCESS;
         }
 
-        $juges = $this->amendements->findParSortPourDossier($dossier, ['Adopté', 'Rejeté']);
+        // Jugés des deux chambres : le dossier AN, plus le dossier sénatorial
+        // de la même loi quand il existe (uids SEN…, analysés à l'identique).
+        $juges = $this->analyseIa->jugesPourDossier($dossier);
         if ($juges === []) {
             $io->warning(sprintf('Aucun amendement adopté ou rejeté pour le dossier %s.', $dossier));
 
@@ -96,10 +97,7 @@ class AnalyserAmendementsCommand extends Command
             $modele ?? 'modèle par défaut'
         ));
 
-        $contexte = [
-            'seances' => $this->amendements->findSeancesPourDossier($dossier),
-            'crCommissions' => $this->amendements->findCrCommissionsPourDossier($dossier),
-        ];
+        $contexte = $this->analyseIa->contextePourDossier($dossier);
 
         $reussies = 0;
         $echecsConsecutifs = 0;

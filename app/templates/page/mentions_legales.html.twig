@@ -1,0 +1,83 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Mentions légales - Alinéa{% endblock %}
+
+{% block styles %}
+    .mentions h1 { color: var(--bleu); }
+    .mentions h2 {
+        color: var(--bleu);
+        font-size: 1.15rem;
+        margin-top: 2rem;
+        border-bottom: 1px solid var(--bordure);
+        padding-bottom: .3rem;
+    }
+    .mentions p { max-width: 45rem; }
+{% endblock %}
+
+{% block body %}
+    <div class="mentions">
+        <h1>Mentions légales</h1>
+
+        <h2>Éditeur du site</h2>
+        <p>
+            Le site Alinéa (alinea.remikel.fr) est édité à titre personnel et non commercial par
+            Rémi Mikel.<br>
+            Directeur de la publication : Rémi Mikel.<br>
+            Contact : <a href="mailto:remikel.pro@gmail.com">remikel.pro@gmail.com</a>
+        </p>
+
+        <h2>Hébergement</h2>
+        <p>
+            Le site est hébergé par PlanetHoster inc.<br>
+            4416 Louis-B.-Mayer, Laval, Québec, H7P 0G1, Canada<br>
+            Téléphone : +33 1 76 60 41 43 (France), +1 855 774 4678 (Canada)<br>
+            Site web : <a href="https://www.planethoster.com/fr/" rel="noopener">www.planethoster.com</a>
+        </p>
+
+        <h2>Sources des données</h2>
+        <p>
+            Les textes de loi sont issus de Légifrance, service public de la diffusion du droit
+            opéré par la Direction de l'information légale et administrative (DILA), et réutilisés
+            dans le cadre de la Licence Ouverte / Open Licence 2.0 (Etalab).
+        </p>
+        <p>
+            Les amendements, comptes rendus et vidéos des débats proviennent des données ouvertes
+            de l'Assemblée nationale (data.assemblee-nationale.fr) et du Sénat (data.senat.fr),
+            notamment via le projet Tricoteuses.
+        </p>
+        <p>
+            Alinéa est un projet indépendant sans caractère officiel : il n'est affilié ni à
+            l'Assemblée nationale, ni au Sénat, ni à la DILA. Seuls les textes publiés sur les
+            sites officiels font foi. Les analyses produites par intelligence artificielle sont
+            fournies à titre purement indicatif et peuvent comporter des erreurs.
+        </p>
+
+        <h2>Propriété intellectuelle</h2>
+        <p>
+            La mise en forme du site, son code et ses contenus propres sont l'œuvre de leur auteur.
+            Les données publiques réutilisées restent soumises à leurs licences respectives.
+        </p>
+
+        <h2>Données personnelles</h2>
+        <p>
+            Le site ne nécessite aucun compte et ne collecte aucune donnée personnelle auprès de
+            ses visiteurs. Aucun formulaire ne recueille d'adresse email ou d'autre information
+            nominative. Le serveur conserve des journaux techniques (adresse IP, pages consultées)
+            à des fins de sécurité et de maintenance, pour une durée limitée.
+        </p>
+        <p>
+            Conformément au Règlement général sur la protection des données (RGPD) et à la loi
+            Informatique et Libertés, vous pouvez exercer vos droits d'accès, de rectification et
+            d'effacement en écrivant à
+            <a href="mailto:remikel.pro@gmail.com">remikel.pro@gmail.com</a>.
+        </p>
+
+        <h2>Cookies et services tiers</h2>
+        <p>
+            Le site ne dépose aucun cookie de suivi. Un bouton de participation aux frais est
+            fourni par le service tiers Ko-fi (ko-fi.com), dont le chargement peut entraîner le
+            dépôt de cookies propres à ce service, régis par sa propre politique de
+            confidentialité.
+        </p>
+    </div>
+{% endblock %}

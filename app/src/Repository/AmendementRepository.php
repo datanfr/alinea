@@ -44,6 +44,28 @@ class AmendementRepository
         return $dossier === false ? null : $dossier;
     }
 
+    /**
+     * Numéro de la loi promulguée d'un dossier (ex. « 2025-532 ») : l'inverse
+     * de findDossierPourLoi. Sert de pont vers le dossier sénatorial du même
+     * texte (senat.dosleg_loi.numero porte le même numéro Légifrance).
+     */
+    public function numLoiPourDossier(string $dossierUid): ?string
+    {
+        $num = $this->connection->fetchOne(
+            <<<'SQL'
+            SELECT jsonb_path_query_first(
+                data,
+                '$.actesLegislatifs.** ? (@.xsiType == "Promulgation_Type").codeLoi'
+            ) #>> '{}'
+            FROM assemblee.dossiers
+            WHERE uid = :uid
+            SQL,
+            ['uid' => $dossierUid]
+        );
+
+        return \is_string($num) && $num !== '' ? $num : null;
+    }
+
     public function countPourDossier(string $dossierUid): int
     {
         return (int) $this->connection->fetchOne(

@@ -1,0 +1,141 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Alinéa : contact{% endblock %}
+
+{% block styles %}
+    .contact-intro {
+        color: var(--gris);
+        max-width: 40rem;
+    }
+    p.flash-succes {
+        background: #e8f5e9;
+        border: 1px solid #a5d6a7;
+        border-left: 4px solid #2e7d32;
+        color: #1b5e20;
+        border-radius: .25rem;
+        padding: .8rem 1.2rem;
+    }
+    p.erreur-globale {
+        background: #fdecea;
+        border: 1px solid #f5c6bd;
+        border-left: 4px solid var(--rouge);
+        color: #a03215;
+        border-radius: .25rem;
+        padding: .8rem 1.2rem;
+    }
+    form.contact {
+        background: #fff;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+        padding: 1.5rem;
+        max-width: 40rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    form.contact label {
+        display: flex;
+        flex-direction: column;
+        gap: .3rem;
+        font-family: var(--police);
+        font-size: .9rem;
+    }
+    form.contact input,
+    form.contact textarea {
+        padding: .65rem .9rem;
+        font-size: 1rem;
+        font-family: inherit;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+    }
+    form.contact textarea {
+        min-height: 10rem;
+        resize: vertical;
+    }
+    form.contact .champ-erreur input,
+    form.contact .champ-erreur textarea {
+        border-color: var(--rouge);
+    }
+    form.contact .message-erreur {
+        color: var(--rouge);
+        font-size: .8rem;
+    }
+    form.contact .optionnel {
+        color: var(--gris);
+        font-weight: normal;
+    }
+    /* Pot de miel : hors écran pour les humains, rempli par les robots. */
+    form.contact .ne-pas-remplir {
+        position: absolute;
+        left: -9999px;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+    }
+    form.contact button {
+        align-self: flex-start;
+        padding: .65rem 1.4rem;
+        font-size: 1rem;
+        font-family: var(--police);
+        color: #fff;
+        background: var(--bleu);
+        border: none;
+        border-radius: .25rem;
+        cursor: pointer;
+    }
+    form.contact button:hover { background: var(--bleu-hover); }
+{% endblock %}
+
+{% block body %}
+    <h1>Contact</h1>
+
+    <p class="contact-intro">
+        Une question, une suggestion, une erreur repérée sur une loi ou une
+        analyse ? Écrivez-moi via ce formulaire, je vous répondrai à l'adresse
+        indiquée.
+    </p>
+
+    {% for message in app.flashes('contact_succes') %}
+        <p class="flash-succes">{{ message }}</p>
+    {% endfor %}
+
+    {% if erreurs.global is defined %}
+        <p class="erreur-globale">{{ erreurs.global }}</p>
+    {% endif %}
+
+    <form class="contact" method="post" action="{{ path('contact_envoyer') }}">
+        <input type="hidden" name="_token" value="{{ csrf_token('contact') }}">
+
+        <label class="{{ erreurs.nom is defined ? 'champ-erreur' }}">
+            Votre nom
+            <input type="text" name="nom" value="{{ valeurs.nom ?? '' }}" required autocomplete="name">
+            {% if erreurs.nom is defined %}<span class="message-erreur">{{ erreurs.nom }}</span>{% endif %}
+        </label>
+
+        <label class="{{ erreurs.email is defined ? 'champ-erreur' }}">
+            Votre email
+            <input type="email" name="email" value="{{ valeurs.email ?? '' }}" required autocomplete="email">
+            {% if erreurs.email is defined %}<span class="message-erreur">{{ erreurs.email }}</span>{% endif %}
+        </label>
+
+        <label>
+            Sujet <span class="optionnel">(facultatif)</span>
+            <input type="text" name="sujet" value="{{ valeurs.sujet ?? '' }}">
+        </label>
+
+        <label class="{{ erreurs.message is defined ? 'champ-erreur' }}">
+            Votre message
+            <textarea name="message" required maxlength="5000">{{ valeurs.message ?? '' }}</textarea>
+            {% if erreurs.message is defined %}<span class="message-erreur">{{ erreurs.message }}</span>{% endif %}
+        </label>
+
+        <div class="ne-pas-remplir" aria-hidden="true">
+            <label>
+                Votre site
+                <input type="text" name="site" tabindex="-1" autocomplete="off">
+            </label>
+        </div>
+
+        <button type="submit">Envoyer</button>
+    </form>
+{% endblock %}

@@ -109,6 +109,8 @@
     .badge.irrecevable { background: #fff0e4; color: #b34000; }
     .badge.autre { background: #eee; color: var(--gris); }
     .badge.attente { background: #e8edff; color: var(--bleu); }
+    /* Phases du Sénat : liseré bordeaux, comme son encadré sur la page de la loi. */
+    section.phase.senat h2 { border-bottom-color: #8b1e3f; }
 {% endblock %}
 
 {% block body %}
@@ -119,11 +121,16 @@
         {% if dossier %}
             <div class="dossier">Dossier législatif AN : {{ dossier.titre }} ({{ dossier.uid }}, {{ dossier.legislature }}ᵉ législature)</div>
         {% endif %}
+        {% if dossierSenat %}
+            <div class="dossier">Dossier législatif Sénat :
+                {{ dossierSenat.titre ?? dossierSenat.signet }}
+                (<a href="{{ dossierSenat.url }}" target="_blank" rel="noopener">{{ dossierSenat.signet }} ↗</a>)</div>
+        {% endif %}
     </header>
 
-    {% if dossier is null %}
-        <p>Aucun dossier législatif de l'Assemblée nationale n'a été trouvé pour cette loi
-            (seules les législatures couvertes par l'open data AN sont disponibles).</p>
+    {% if dossier is null and dossierSenat is null %}
+        <p>Aucun dossier législatif de l'Assemblée nationale ou du Sénat n'a été trouvé pour cette loi
+            (seules les législatures couvertes par l'open data des deux chambres sont disponibles).</p>
     {% elseif phases is empty %}
         <p>Aucun amendement n'est enregistré pour ce dossier.</p>
     {% else %}
@@ -148,7 +155,8 @@
         </div>
 
         {% for phase in phases %}
-            <section class="phase">
+            {% set phaseSenat = phase.chambre|default('an') == 'senat' %}
+            <section class="phase{{ phaseSenat ? ' senat' }}">
                 <h2>{{ phase.label }} <small>texte n° {{ phase.texte_num }} · {{ phase.amendements|length }} amendements</small></h2>
                 <table class="amendements">
                     <thead>
@@ -165,8 +173,13 @@
                         {% for a in phase.amendements %}
                             <tr data-sort="{{ a.sort_classe }}">
                                 <td class="num">
-                                    <a href="{{ path('loi_amendement', {id: loi.id, uid: a.uid}) }}" title="Détail et débat en séance">{{ a.numero }}</a>
-                                    <a href="{{ a.url_an }}" target="_blank" rel="noopener" title="Voir sur assemblee-nationale.fr">↗</a>
+                                    {% if phaseSenat %}
+                                        {# Pas de page interne pour les amendements Ameli : détail sur senat.fr. #}
+                                        <a href="{{ a.url_senat }}" target="_blank" rel="noopener" title="Voir sur senat.fr">{{ a.numero }} ↗</a>
+                                    {% else %}
+                                        <a href="{{ path('loi_amendement', {id: loi.id, uid: a.uid}) }}" title="Détail et débat en séance">{{ a.numero }}</a>
+                                        <a href="{{ a.url_an }}" target="_blank" rel="noopener" title="Voir sur assemblee-nationale.fr">↗</a>
+                                    {% endif %}
                                 </td>
                                 <td>{{ a.division ?? '—' }}</td>
                                 <td>{{ a.auteur }}</td>

@@ -76,6 +76,7 @@ class LoiController extends AbstractController
         $analysesFaites = 0;
         $totalJuges = 0;
         $topDebat = [];
+        $juges = [];
 
         if ($dossier !== null) {
             $nbAmendements = $amendements->countPourDossier($dossier['uid']);
@@ -112,22 +113,62 @@ class LoiController extends AbstractController
             // Adoptés et rejetés en une passe : les adoptés nourrissent le
             // Rayon X, l'ensemble alimente les résumés IA.
             $juges = $amendements->findParSortPourDossier($dossier['uid'], ['Adopté', 'Rejeté']);
-            $adoptes = array_values(array_filter($juges, static fn (array $a): bool => $a['sort'] === 'Adopté'));
+        }
 
-            // Les analyses IA sont lues en base uniquement : leur génération
-            // (locale via Ollama, potentiellement longue) se lance en tâche
-            // de fond depuis le bouton de la page, jamais pendant la requête.
-            $ia = ['analyses' => $resumes->analysesAmendements(array_column($juges, 'uid'))];
-            $totalJuges = \count($juges);
-            $analysesFaites = \count($ia['analyses']);
-            if ($totalJuges > 0) {
-                $statutIa = match (true) {
-                    $analysesFaites >= $totalJuges => 'complet',
-                    $arrierePlan->estEnCours($dossier['uid']) => 'en_cours',
-                    $analyseDifferee && $demandes->enAttente($dossier['uid']) => 'demande',
-                    default => 'a_faire',
-                };
+        // Volet Sénat : séances publiques importées (alinea, chambre senat),
+        // amendements Ameli les plus discutés, et, pour le Rayon X et les
+        // cartes, les amendements adoptés/rejetés avec leur dispositif.
+        // Même politique de cache que le classement AN.
+        $senat = null;
+        $jugesSenat = [];
+        $dossierSenat = $senatRepository->findDossierPourLoi($loi['num']);
+        if ($dossierSenat !== null) {
+            $seancesSenat = $senatRepository->findSeancesPourLoi($dossierSenat['loicod']);
+            $topSenat = [];
+            if ($seancesSenat !== []) {
+                $topSenat = $cache->get(
+                    'debat_senat_top_' . $dossierSenat['loicod'],
+                    static function (ItemInterface $item) use ($senatRepository, $dossierSenat): array {
+                        $item->expiresAfter(86400);
+
+                        return $senatRepository->classerParDebat($dossierSenat['loicod'], $dossierSenat['signet'], 3);
+                    }
+                );
             }
+            $senat = [
+                'dossier' => $dossierSenat,
+                'seances' => $seancesSenat,
+                'top' => $topSenat,
+                'nbAmendements' => $senatRepository->countAmendements($dossierSenat['signet']),
+            ];
+            $jugesSenat = $senatRepository->findJugesPourDossier($dossierSenat['signet']);
+        }
+
+        // Rayon X et cartes : les deux chambres confondues. Un passage du
+        // texte promulgué peut ainsi remonter à un amendement AN comme à un
+        // amendement Sénat (commission ou séance).
+        $juges = array_merge($juges, $jugesSenat);
+
+        // Les analyses IA sont lues en base uniquement : leur génération
+        // (locale via Ollama, potentiellement longue) se lance en tâche
+        // de fond depuis le bouton de la page, jamais pendant la requête.
+        // Le périmètre couvre les deux chambres ; le flux de demande, lui,
+        // reste ancré sur le dossier AN (bouton absent pour une loi sans
+        // dossier AN).
+        $ia = ['analyses' => $juges !== [] ? $resumes->analysesAmendements(array_column($juges, 'uid')) : []];
+        $totalJuges = \count($juges);
+        $analysesFaites = \count($ia['analyses']);
+        if ($dossier !== null && $totalJuges > 0) {
+            $statutIa = match (true) {
+                $analysesFaites >= $totalJuges => 'complet',
+                $arrierePlan->estEnCours($dossier['uid']) => 'en_cours',
+                $analyseDifferee && $demandes->enAttente($dossier['uid']) => 'demande',
+                default => 'a_faire',
+            };
+        }
+
+        if ($juges !== []) {
+            $adoptes = array_values(array_filter($juges, static fn (array $a): bool => $a['sort'] === 'Adopté'));
 
             $resultat = $analyseur->annoter($articles, $adoptes);
             $articles = $resultat['articles'];
@@ -142,6 +183,7 @@ class LoiController extends AbstractController
                     'numero' => $a['numero'],
                     'date' => $a['date_depot'],
                     'classe' => $a['sort_classe'],
+                    'chambre' => $a['chambre'] ?? 'an',
                     'intentionIa' => $analyse['intention'] ?? null,
                     'ambiguiteIa' => $analyse['ambiguite'] ?? null,
                     'categorieIa' => $analyse['categorie'] ?? null,
@@ -151,7 +193,7 @@ class LoiController extends AbstractController
                     'exposeSommaire' => ($analyse['intention'] ?? null) === null
                         ? $this->debutExpose($a['expose_sommaire'] ?? null)
                         : null,
-                    'url' => $this->generateUrl('loi_amendement', ['id' => $loi['id'], 'uid' => $uid]),
+                    'url' => $this->urlAmendement($a, $loi['id']),
                 ];
             }
 
@@ -178,6 +220,7 @@ class LoiController extends AbstractController
                     'division' => $a['division'],
                     'statut' => $a['statut'],
                     'classe' => $a['sort_classe'],
+                    'chambre' => $a['chambre'] ?? 'an',
                     'resumeIa' => $analyse['resume'] ?? null,
                     'intentionIa' => $analyse['intention'] ?? null,
                     'categorieIa' => $analyse['categorie'] ?? null,
@@ -188,7 +231,7 @@ class LoiController extends AbstractController
                     'exposeSommaire' => ($analyse['resume'] ?? null) === null
                         ? $this->debutExpose($a['expose_sommaire'] ?? null)
                         : null,
-                    'url' => $this->generateUrl('loi_amendement', ['id' => $loi['id'], 'uid' => $a['uid']]),
+                    'url' => $this->urlAmendement($a, $loi['id']),
                 ];
             }
 
@@ -229,32 +272,6 @@ class LoiController extends AbstractController
             // Articles dans l'ordre de la proposition (Article PREMIER, 2, 3,
             // 3 bis, 4…), les divisions non numérotées en fin.
             uksort($autresParDivision, fn (string $x, string $y): int => $this->rangDivision($x) <=> $this->rangDivision($y));
-        }
-
-        // Volet Sénat : séances publiques importées (alinea, chambre senat) et
-        // amendements Ameli les plus discutés. Même politique de cache que le
-        // classement AN — le classement ne bouge qu'au réimport des CRI.
-        $senat = null;
-        $dossierSenat = $senatRepository->findDossierPourLoi($loi['num']);
-        if ($dossierSenat !== null) {
-            $seancesSenat = $senatRepository->findSeancesPourLoi($dossierSenat['loicod']);
-            $topSenat = [];
-            if ($seancesSenat !== []) {
-                $topSenat = $cache->get(
-                    'debat_senat_top_' . $dossierSenat['loicod'],
-                    static function (ItemInterface $item) use ($senatRepository, $dossierSenat): array {
-                        $item->expiresAfter(86400);
-
-                        return $senatRepository->classerParDebat($dossierSenat['loicod'], $dossierSenat['signet'], 3);
-                    }
-                );
-            }
-            $senat = [
-                'dossier' => $dossierSenat,
-                'seances' => $seancesSenat,
-                'top' => $topSenat,
-                'nbAmendements' => $senatRepository->countAmendements($dossierSenat['signet']),
-            ];
         }
 
         // Jurisprudence Judilibre : lue en base uniquement (l'import est une
@@ -298,6 +315,7 @@ class LoiController extends AbstractController
         Request $request,
         LoiRepository $lois,
         AmendementRepository $amendements,
+        AnalyseAmendementIa $analyseIa,
         AnalyseArrierePlan $arrierePlan,
         DemandeAnalyseRepository $demandes,
         NotificationAnalyse $notification,
@@ -317,10 +335,10 @@ class LoiController extends AbstractController
         if ($dossier !== null) {
             if ($analyseDifferee) {
                 // L'email ne part qu'à la création : les clics suivants
-                // retombent sur la demande déjà ouverte.
+                // retombent sur la demande déjà ouverte. Le compte annoncé
+                // couvre les deux chambres, comme le traitement.
                 if ($demandes->deposer($dossier['uid'], $loi['id'])) {
-                    $juges = $amendements->findParSortPourDossier($dossier['uid'], ['Adopté', 'Rejeté']);
-                    $notification->demandeDeposee($loi, $dossier['uid'], \count($juges));
+                    $notification->demandeDeposee($loi, $dossier['uid'], \count($analyseIa->jugesPourDossier($dossier['uid'])));
                 }
             } else {
                 $arrierePlan->lancer($dossier['uid']);
@@ -336,6 +354,20 @@ class LoiController extends AbstractController
      * les divisions qui ne désignent pas directement un article (« Après
      * l'article 3 », titres, annexes, états…).
      */
+    /**
+     * Lien de détail d'un amendement : page interne pour l'AN (détail, débat
+     * en séance, analyse IA), page officielle senat.fr pour le Sénat, qui
+     * n'a pas de page interne.
+     */
+    private function urlAmendement(array $a, string $loiId): string
+    {
+        if (($a['chambre'] ?? 'an') === 'senat') {
+            return $a['url_senat'];
+        }
+
+        return $this->generateUrl('loi_amendement', ['id' => $loiId, 'uid' => $a['uid']]);
+    }
+
     /**
      * Début de l'exposé sommaire en texte brut (HTML Légifrance/AN aplati),
      * tronqué à 200 caractères, pour tenir lieu d'aperçu tant que l'analyse IA
@@ -396,8 +428,12 @@ class LoiController extends AbstractController
     }
 
     #[Route('/loi/{id}/amendements', name: 'loi_amendements', requirements: ['id' => '[A-Z0-9]{20}'])]
-    public function amendements(string $id, LoiRepository $lois, AmendementRepository $amendements): Response
-    {
+    public function amendements(
+        string $id,
+        LoiRepository $lois,
+        AmendementRepository $amendements,
+        SenatRepository $senatRepository,
+    ): Response {
         $loi = $lois->find($id);
 
         if ($loi === null) {
@@ -406,6 +442,20 @@ class LoiController extends AbstractController
 
         $dossier = $amendements->findDossierPourLoi($loi['num']);
         $phases = $dossier !== null ? $amendements->findPourDossier($dossier['uid']) : [];
+
+        // Phases du Sénat (Ameli) mêlées à celles de l'AN, le tout dans
+        // l'ordre chronologique du premier dépôt : la navette alterne les
+        // chambres, l'entrelacement restitue le parcours réel du texte.
+        $dossierSenat = $senatRepository->findDossierPourLoi($loi['num']);
+        if ($dossierSenat !== null) {
+            $phases = array_merge($phases, $senatRepository->findPourDossier($dossierSenat['signet']));
+        }
+        $premierDepot = static function (array $phase): string {
+            $dates = array_filter(array_column($phase['amendements'], 'date_depot'));
+
+            return $dates === [] ? '9999' : min($dates);
+        };
+        usort($phases, static fn (array $a, array $b): int => $premierDepot($a) <=> $premierDepot($b));
 
         $sorts = ['adopte' => 0, 'rejete' => 0, 'irrecevable' => 0, 'autre' => 0, 'attente' => 0];
         $total = 0;
@@ -419,6 +469,7 @@ class LoiController extends AbstractController
         return $this->render('loi/amendements.html.twig', [
             'loi' => $loi,
             'dossier' => $dossier,
+            'dossierSenat' => $dossierSenat,
             'phases' => $phases,
             'total' => $total,
             'sorts' => $sorts,

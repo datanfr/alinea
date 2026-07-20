@@ -14,9 +14,10 @@
              data-sort="{{ a.classe }}"
              data-impact="{{ a.scoreImpactIa ?? -1 }}"
              data-categorie="{{ a.categorieIa ?? '' }}"
-             data-recherche="{{ [a.numero, a.auteur, a.groupe, a.division, a.resumeIa, a.intentionIa, (a.categorieIa ? libellesCategorie[a.categorieIa])]|join(' ')|lower }}">
+             data-recherche="{{ [a.numero, a.auteur, a.groupe, a.division, a.phase|default(''), a.resumeIa, a.intentionIa, (a.categorieIa ? libellesCategorie[a.categorieIa])]|join(' ')|lower }}">
         <div class="carte-tete">
             <span class="badge {{ a.classe }}">{{ a.statut }}</span>
+            {% if a.chambre|default('an') == 'senat' %}<span class="badge-senat">Sénat</span>{% endif %}
             <span class="carte-num">n° {{ a.numero }}</span>
         </div>
         <p class="carte-meta">
@@ -44,7 +45,12 @@
         {% else %}
             <p class="carte-resume vide">Analyse en cours…</p>
         {% endif %}
-        <a class="carte-lien" href="{{ a.url }}">Détail et débat →</a>
+        {# Les amendements du Sénat n'ont pas de page interne : le détail vit sur senat.fr. #}
+        {% if a.chambre|default('an') == 'senat' %}
+            <a class="carte-lien" href="{{ a.url }}" target="_blank" rel="noopener">Détail sur senat.fr ↗</a>
+        {% else %}
+            <a class="carte-lien" href="{{ a.url }}">Détail et débat →</a>
+        {% endif %}
     </article>
 {% endmacro %}
 
@@ -728,6 +734,19 @@
         font-size: .82rem;
         text-decoration: none;
     }
+    /* Étiquette de chambre : signale les amendements du Sénat (bordeaux,
+       comme son encadré) dans les fiches de marge et les cartes ; ceux de
+       l'AN, contexte par défaut, restent sans étiquette. */
+    .badge-senat {
+        display: inline-block;
+        font-family: var(--police);
+        font-size: .72rem;
+        padding: .05rem .5rem;
+        border-radius: 2rem;
+        background: #f7e9ee;
+        color: #8b1e3f;
+        white-space: nowrap;
+    }
 
     /* Section « hors texte » : amendements rejetés et adoptés non localisés,
        qui n'ont pas de passage surligné dans la loi. */
@@ -887,13 +906,15 @@
             {% if loi.origine_publi %}{{ loi.origine_publi }}{% endif %}
             {% if loi.eli %}<a href="{{ loi.eli }}" target="_blank" rel="noopener">Voir sur Légifrance ↗</a>{% endif %}
         </div>
-        {% if nbAmendements %}
+        {% set nbTotalAmendements = (nbAmendements ?? 0) + (senat ? senat.nbAmendements : 0) %}
+        {% if nbTotalAmendements > 0 %}
             <a class="amendements" href="{{ path('loi_amendements', {id: loi.id}) }}">
-                Voir les {{ nbAmendements|format_number(locale='fr') }} amendements →
+                Voir les {{ nbTotalAmendements|format_number(locale='fr') }} amendements
+                {%- if nbAmendements and senat and senat.nbAmendements > 0 %} (Assemblée et Sénat){% endif %} →
             </a>
         {% elseif nbAmendements is same as(0) %}
             <p class="sans-amendement">Aucun amendement examiné à l'Assemblée nationale pour ce texte
-                (adopté conforme — les amendements éventuels ont été déposés au Sénat).</p>
+                (adopté conforme).</p>
         {% endif %}
     </header>
 
@@ -1014,6 +1035,7 @@
             {% endif %}
             <p class="senat-source">{{ senat.nbAmendements|format_number(locale='fr') }} amendements déposés
                 au Sénat (séance et commission) ·
+                <a href="{{ path('loi_amendements', {id: loi.id}) }}">liste complète</a> ·
                 <a href="{{ senat.dossier.url }}" target="_blank" rel="noopener">Dossier législatif sur senat.fr ↗</a></p>
         </aside>
     {% endif %}
@@ -1059,8 +1081,9 @@
 
     {% if provenance is not empty %}
         <p class="legende-rayon-x">Rayon X : les passages surlignés proviennent d'amendements adoptés
-            à l'Assemblée nationale. En regard, dans la colonne de droite, l'amendement à l'origine de
-            chaque passage — cliquez sur un passage ou sa note pour les relier.</p>
+            au cours de la navette, à l'Assemblée nationale ou au Sénat, en commission ou en séance.
+            En regard, dans la colonne de droite, l'amendement à l'origine de
+            chaque passage : cliquez sur un passage ou sa note pour les relier.</p>
     {% endif %}
 
     {% set colonneDroite = provenance is not empty or amendementsParArticle is not empty %}
@@ -1164,7 +1187,8 @@
             <h2 class="titre-hors-texte">Amendements hors du texte promulgué <span class="compte">{{ autresTotal }}</span></h2>
             <p class="intro-hors-texte">Les amendements visant des divisions qu'on ne retrouve pas dans la
                 loi promulguée : insertions « après l'article… », articles renumérotés ou supprimés au cours
-                de la navette, annexes et états. La numérotation est celle de l'examen à l'Assemblée. Le badge
+                de la navette, annexes et états. La numérotation est celle du texte examiné dans chaque
+                chambre (Assemblée ou Sénat) et peut différer de la loi promulguée. Le badge
                 indique le sort — adopté ou rejeté ; le résumé, ce que l'amendement changeait ou proposait.</p>
 
             {% for division, cartes in autresParDivision %}
@@ -1217,7 +1241,19 @@
                 lien.className = 'lien-detail';
                 lien.href = a.url;
                 lien.title = `Amendement n° ${a.numero}`;
-                lien.textContent = 'Détail →';
+                // Les amendements du Sénat n'ont pas de page interne : le
+                // lien sort vers senat.fr, l'étiquette signale la chambre.
+                if (a.chambre === 'senat') {
+                    const chambre = document.createElement('span');
+                    chambre.className = 'badge-senat';
+                    chambre.textContent = 'Sénat';
+                    fiche.insertBefore(chambre, intention);
+                    lien.target = '_blank';
+                    lien.rel = 'noopener';
+                    lien.textContent = 'Détail sur senat.fr ↗';
+                } else {
+                    lien.textContent = 'Détail →';
+                }
                 fiche.appendChild(lien);
 
                 return fiche;

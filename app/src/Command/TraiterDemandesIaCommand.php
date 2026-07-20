@@ -2,7 +2,6 @@
 
 namespace App\Command;
 
-use App\Repository\AmendementRepository;
 use App\Repository\ResumeIaRepository;
 use App\Service\AnalyseAmendementIa;
 use App\Service\AnalyseArrierePlan;
@@ -31,7 +30,9 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  *
  * Les analyses sont aussi persistées en base locale (regenerer) : local et
  * prod restent alignés. Un amendement absent de la base locale (retard de
- * sync) est signalé et sauté — relancer après app:sync:canutes.
+ * sync) est signalé et sauté — relancer après app:sync:canutes. Le périmètre
+ * d'un dossier couvre les deux chambres : amendements AN (AMANR…) et, si la
+ * loi a un dossier sénatorial, amendements du Sénat (SEN…).
  *
  * Avec des dossiers en argument, la commande ignore les demandes ouvertes et
  * traite ces dossiers-là : les analyses manquantes en base locale, ou toutes
@@ -58,7 +59,6 @@ class TraiterDemandesIaCommand extends Command
         #[Autowire(env: 'ALINEA_DISTANT_URL')] string $distantUrl,
         #[Autowire(env: 'IA_API_JETON')] private readonly string $jeton,
         #[Autowire(env: 'IA_MODELE')] private readonly string $modeleDefaut,
-        private readonly AmendementRepository $amendements,
         private readonly ResumeIaRepository $resumes,
         private readonly AnalyseAmendementIa $analyseIa,
         private readonly AnalyseArrierePlan $arrierePlan,
@@ -159,10 +159,7 @@ class TraiterDemandesIaCommand extends Command
                 return null;
             }
 
-            $uids = array_column(
-                $this->amendements->findParSortPourDossier($dossier, ['Adopté', 'Rejeté']),
-                'uid'
-            );
+            $uids = array_column($this->analyseIa->jugesPourDossier($dossier), 'uid');
             if (!$regenerer) {
                 $faites = $this->resumes->analysesAmendements($uids);
                 $uids = array_values(array_filter($uids, static fn (string $uid): bool => !isset($faites[$uid])));
@@ -200,7 +197,7 @@ class TraiterDemandesIaCommand extends Command
         }
 
         $aTraiter = array_values(array_filter(
-            $this->amendements->findParSortPourDossier($dossier, ['Adopté', 'Rejeté']),
+            $this->analyseIa->jugesPourDossier($dossier),
             static fn (array $a): bool => isset($manquants[$a['uid']])
         ));
 
@@ -214,10 +211,7 @@ class TraiterDemandesIaCommand extends Command
             $aTraiter = \array_slice($aTraiter, 0, $limite);
         }
 
-        $contexte = [
-            'seances' => $this->amendements->findSeancesPourDossier($dossier),
-            'crCommissions' => $this->amendements->findCrCommissionsPourDossier($dossier),
-        ];
+        $contexte = $this->analyseIa->contextePourDossier($dossier);
 
         $lot = [];
         $reussies = 0;
