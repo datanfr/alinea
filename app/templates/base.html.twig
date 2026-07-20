@@ -90,5 +90,16 @@
         <main>
             {% block body %}{% endblock %}
         </main>
+        {# Bouton flottant Ko-fi (participation aux frais d'analyse IA),
+           aux couleurs du site (violet --bleu #301639). #}
+        <script src='https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'></script>
+        <script>
+            kofiWidgetOverlay.draw('remikel', {
+                'type': 'floating-chat',
+                'floating-chat.donateButton.text': 'Faire un don',
+                'floating-chat.donateButton.background-color': '#301639',
+                'floating-chat.donateButton.text-color': '#fff'
+            });
+        </script>
     </body>
 </html>

@@ -39,6 +39,8 @@
                     {% if a.scoreImpactIa is not null %}<span class="badge-ia">Impact {{ a.scoreImpactIa }}/100</span>{% endif %}
                 </div>
             {% endif %}
+        {% elseif a.exposeSommaire %}
+            <p class="carte-resume vide" title="Début de l'exposé sommaire, en attendant l'analyse">{{ a.exposeSommaire }}</p>
         {% else %}
             <p class="carte-resume vide">Analyse en cours…</p>
         {% endif %}
@@ -113,6 +115,42 @@
         cursor: pointer;
     }
     .statut-ia.a-faire button:hover { background: var(--bleu-hover); }
+    /* Modale de confirmation avant une analyse coûteuse (> 50 amendements). */
+    .modale-analyse {
+        max-width: 32rem;
+        border: 1px solid var(--bordure);
+        border-top: 4px solid var(--bleu);
+        border-radius: .25rem;
+        padding: 1.5rem 2rem;
+        font-family: var(--police);
+    }
+    .modale-analyse::backdrop { background: rgba(0, 0, 0, .45); }
+    .modale-analyse h2 { font-size: 1.1rem; margin: 0 0 .8rem; }
+    .modale-analyse p { font-size: .9rem; line-height: 1.5; margin: 0 0 .8rem; }
+    .modale-kofi { margin: 1rem 0 1.2rem; }
+    .modale-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: .8rem;
+    }
+    .modale-actions button {
+        font-family: var(--police);
+        font-size: .9rem;
+        border-radius: .25rem;
+        padding: .5rem 1rem;
+        cursor: pointer;
+    }
+    .modale-actions .modale-annuler {
+        color: var(--encre);
+        background: var(--fond);
+        border: 1px solid var(--bordure);
+    }
+    .modale-actions .modale-confirmer {
+        color: #fff;
+        background: var(--bleu);
+        border: none;
+    }
+    .modale-actions .modale-confirmer:hover { background: var(--bleu-hover); }
     p.sans-amendement {
         font-family: var(--police);
         font-size: .85rem;
@@ -870,13 +908,52 @@
             {%- if analysesFaites > 0 %} ({{ analysesFaites }}/{{ totalJuges }} amendements déjà analysés){% endif %} —
             elle sera disponible prochainement, repassez d'ici quelques heures.</p>
     {% elseif statutIa == 'a_faire' %}
-        <form class="statut-ia a-faire" method="post" action="{{ path('loi_analyser', {id: loi.id}) }}">
+        <form id="form-analyse" class="statut-ia a-faire" method="post" action="{{ path('loi_analyser', {id: loi.id}) }}">
             <input type="hidden" name="_token" value="{{ csrf_token('analyser' ~ loi.id) }}">
             <span>Cette loi n'a pas encore été traitée{% if analysesFaites > 0 %}
                 entièrement ({{ analysesFaites }}/{{ totalJuges }} amendements analysés){% endif %},
                 cliquez ici pour le faire, cela peut prendre quelques heures.</span>
             <button type="submit">Lancer l'analyse IA</button>
         </form>
+        {# Au-delà de 50 amendements à analyser, un clic engage un vrai coût
+           d'API : une modale demande de confirmer avant de déposer la demande.
+           Les scripts Ko-fi utilisent document.write : ils doivent être posés
+           ici, dans le flux HTML, pour que le bouton se dessine au chargement. #}
+        {% if totalJuges > 50 %}
+            <dialog id="modale-analyse" class="modale-analyse">
+                <h2>Un instant !</h2>
+                <p>L'analyse IA des {{ totalJuges }} amendements de cette loi a un coût,
+                    que le créateur du site couvre pour l'instant. Si c'est pour votre
+                    travail, n'hésitez pas à la lancer ; si c'est par simple curiosité,
+                    abstenez-vous s'il vous plaît.</p>
+                <p>Vous pouvez aussi participer aux frais — sans aucune obligation
+                    pour utiliser le site.</p>
+                <div class="modale-kofi">
+                    <script type='text/javascript' src='https://storage.ko-fi.com/cdn/widget/Widget_2.js'></script><script type='text/javascript'>kofiwidget2.init('Faire un don', '#301639', 'B4R623JSBU');kofiwidget2.draw();</script>
+                </div>
+                <div class="modale-actions">
+                    <button type="button" class="modale-annuler">Annuler</button>
+                    <button type="button" class="modale-confirmer">Lancer l'analyse</button>
+                </div>
+            </dialog>
+            <script>
+                (function () {
+                    const formulaire = document.getElementById('form-analyse');
+                    const modale = document.getElementById('modale-analyse');
+                    formulaire.addEventListener('submit', function (evenement) {
+                        evenement.preventDefault();
+                        modale.showModal();
+                    });
+                    modale.querySelector('.modale-annuler').addEventListener('click', function () {
+                        modale.close();
+                    });
+                    modale.querySelector('.modale-confirmer').addEventListener('click', function () {
+                        modale.close();
+                        formulaire.submit(); // ne repasse pas par l'écouteur submit
+                    });
+                })();
+            </script>
+        {% endif %}
     {% endif %}
 
     {% if topDebat is not empty %}
@@ -1113,13 +1190,17 @@
                 fiche.dataset.sort = a.classe ?? 'adopte';
                 fiche.dataset.impact = a.scoreImpactIa ?? -1;
                 fiche.dataset.categorie = a.categorieIa ?? '';
-                fiche.dataset.recherche = [a.numero, a.intentionIa].filter(Boolean).join(' ').toLowerCase();
+                fiche.dataset.recherche = [a.numero, a.intentionIa, a.exposeSommaire].filter(Boolean).join(' ').toLowerCase();
 
                 const intention = document.createElement('p');
                 intention.className = 'intention-fiche';
                 if (a.intentionIa) {
                     intention.textContent = a.intentionIa;
                     intention.style.opacity = Math.min(1, ((a.scoreImpactIa ?? 0) + (a.ambiguiteIa ?? 0)) / 100);
+                } else if (a.exposeSommaire) {
+                    intention.textContent = a.exposeSommaire;
+                    intention.title = 'Début de l\'exposé sommaire, en attendant l\'analyse';
+                    intention.classList.add('vide');
                 } else {
                     intention.textContent = 'Analyse en cours…';
                     intention.classList.add('vide');

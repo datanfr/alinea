@@ -146,6 +146,11 @@ class LoiController extends AbstractController
                     'ambiguiteIa' => $analyse['ambiguite'] ?? null,
                     'categorieIa' => $analyse['categorie'] ?? null,
                     'scoreImpactIa' => $analyse['score_impact'] ?? null,
+                    // À défaut d'intention IA, le début de l'exposé sommaire sert
+                    // d'aperçu dans la fiche en marge (cf. construireFiche).
+                    'exposeSommaire' => ($analyse['intention'] ?? null) === null
+                        ? $this->debutExpose($a['expose_sommaire'] ?? null)
+                        : null,
                     'url' => $this->generateUrl('loi_amendement', ['id' => $loi['id'], 'uid' => $uid]),
                 ];
             }
@@ -178,6 +183,11 @@ class LoiController extends AbstractController
                     'categorieIa' => $analyse['categorie'] ?? null,
                     'scoreImpactIa' => $analyse['score_impact'] ?? null,
                     'ambiguiteIa' => $analyse['ambiguite'] ?? null,
+                    // En l'absence de résumé IA, on affiche le début de l'exposé
+                    // sommaire (texte brut, tronqué) plutôt qu'un « Analyse en cours ».
+                    'exposeSommaire' => ($analyse['resume'] ?? null) === null
+                        ? $this->debutExpose($a['expose_sommaire'] ?? null)
+                        : null,
                     'url' => $this->generateUrl('loi_amendement', ['id' => $loi['id'], 'uid' => $a['uid']]),
                 ];
             }
@@ -326,6 +336,25 @@ class LoiController extends AbstractController
      * les divisions qui ne désignent pas directement un article (« Après
      * l'article 3 », titres, annexes, états…).
      */
+    /**
+     * Début de l'exposé sommaire en texte brut (HTML Légifrance/AN aplati),
+     * tronqué à 200 caractères, pour tenir lieu d'aperçu tant que l'analyse IA
+     * n'a pas produit de résumé. Renvoie null si l'exposé est vide.
+     */
+    private function debutExpose(?string $html, int $longueur = 200): ?string
+    {
+        if ($html === null || $html === '') {
+            return null;
+        }
+
+        $texte = trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($html), \ENT_QUOTES | \ENT_HTML5, 'UTF-8')));
+        if ($texte === '') {
+            return null;
+        }
+
+        return mb_strlen($texte) > $longueur ? mb_substr($texte, 0, $longueur) . '…' : $texte;
+    }
+
     private function cleArticle(string $titre): ?string
     {
         if (preg_match('/^Article\s+(.+)$/iu', trim($titre), $m) !== 1) {
