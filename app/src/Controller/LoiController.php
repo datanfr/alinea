@@ -308,6 +308,10 @@ class LoiController extends AbstractController
      *     machine (Ollama local), sans effet si un traitement est en cours ;
      *   - différé (prod, pas d'Ollama) : la demande est enregistrée en base
      *     et un email est envoyé — l'agent local la traitera via /api/ia.
+     *     Exception : sous IA_SEUIL_ANALYSE_DIRECTE analyses manquantes, le
+     *     traitement part directement en arrière-plan sur la prod, possible
+     *     sans Ollama car le modèle « claude-* » passe par l'API Anthropic
+     *     (IA_MODELE et ANTHROPIC_KEY requis). 0 = toujours différer.
      */
     #[Route('/loi/{id}/analyser', name: 'loi_analyser', requirements: ['id' => '[A-Z0-9]{20}'], methods: ['POST'])]
     public function analyser(
@@ -319,7 +323,9 @@ class LoiController extends AbstractController
         AnalyseArrierePlan $arrierePlan,
         DemandeAnalyseRepository $demandes,
         NotificationAnalyse $notification,
+        ResumeIaRepository $resumes,
         #[Autowire(env: 'bool:IA_ANALYSE_DIFFEREE')] bool $analyseDifferee,
+        #[Autowire(env: 'int:IA_SEUIL_ANALYSE_DIRECTE')] int $seuilAnalyseDirecte,
     ): Response {
         $loi = $lois->find($id);
 
@@ -333,14 +339,23 @@ class LoiController extends AbstractController
 
         $dossier = $amendements->findDossierPourLoi($loi['num']);
         if ($dossier !== null) {
+            $directe = true;
             if ($analyseDifferee) {
+                // Le seuil s'applique au travail restant (analyses manquantes),
+                // pas au total du dossier : un gros dossier presque terminé se
+                // finit sur place.
+                $juges = $analyseIa->jugesPourDossier($dossier['uid']);
+                $manquantes = \count($juges) - \count($resumes->analysesAmendements(array_column($juges, 'uid')));
+                $directe = $manquantes > 0 && $manquantes < $seuilAnalyseDirecte;
+
                 // L'email ne part qu'à la création : les clics suivants
                 // retombent sur la demande déjà ouverte. Le compte annoncé
                 // couvre les deux chambres, comme le traitement.
-                if ($demandes->deposer($dossier['uid'], $loi['id'])) {
-                    $notification->demandeDeposee($loi, $dossier['uid'], \count($analyseIa->jugesPourDossier($dossier['uid'])));
+                if (!$directe && $demandes->deposer($dossier['uid'], $loi['id'])) {
+                    $notification->demandeDeposee($loi, $dossier['uid'], \count($juges));
                 }
-            } else {
+            }
+            if ($directe) {
                 $arrierePlan->lancer($dossier['uid']);
             }
         }

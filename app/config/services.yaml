@@ -11,6 +11,7 @@ parameters:
     # versionné) : mode direct, pas d'email, API /api/ia désactivée (404 tant
     # que IA_API_JETON est vide).
     env(IA_ANALYSE_DIFFEREE): '0'
+    env(IA_SEUIL_ANALYSE_DIRECTE): '0'
     env(NOTIFICATION_EMAIL): ''
     env(IA_API_JETON): ''
     env(ALINEA_DISTANT_URL): 'https://alinea.remikel.fr'
