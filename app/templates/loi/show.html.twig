@@ -45,12 +45,7 @@
         {% else %}
             <p class="carte-resume vide">Analyse en cours…</p>
         {% endif %}
-        {# Les amendements du Sénat n'ont pas de page interne : le détail vit sur senat.fr. #}
-        {% if a.chambre|default('an') == 'senat' %}
-            <a class="carte-lien" href="{{ a.url }}" target="_blank" rel="noopener">Détail sur senat.fr ↗</a>
-        {% else %}
-            <a class="carte-lien" href="{{ a.url }}">Détail et débat →</a>
-        {% endif %}
+        <a class="carte-lien" href="{{ a.url }}">Détail et débat →</a>
     </article>
 {% endmacro %}
 
@@ -1017,13 +1012,16 @@
                     <h3>Au cœur du débat sénatorial</h3>
                     <ol class="liste-debat">
                         {% for d in senat.top %}
+                            {# Repli senat.fr : le classement mis en cache avant l'ajout
+                               de la page interne ne porte pas encore l'uid. #}
+                            {% set interne = d.uid is defined %}
                             <li>
-                                <a class="lien-ancre" href="{{ d.url }}" target="_blank" rel="noopener">
+                                <a class="lien-ancre" href="{{ interne ? path('loi_amendement_senat', {id: loi.id, uid: d.uid}) : d.url }}"{% if not interne %} target="_blank" rel="noopener"{% endif %}>
                                     <span class="badge {{ 'Adopté' in d.sort ? 'adopte' : 'rejete' }}">{{ d.sort }}</span>
                                     <span class="debat-num">n° {{ d.numero }}</span>
                                     {% if d.auteur %}<span class="debat-auteur">{{ d.auteur }}</span>{% endif %}
                                 </a>
-                                <span class="debat-detail">{{ d.nb_cit }} citations dans le CRI · senat.fr ↗</span>
+                                <span class="debat-detail">{{ d.nb_cit }} citations dans le CRI{{ interne ? '' : ' · senat.fr ↗' }}</span>
                             </li>
                         {% endfor %}
                     </ol>
@@ -1241,18 +1239,13 @@
                 lien.className = 'lien-detail';
                 lien.href = a.url;
                 lien.title = `Amendement n° ${a.numero}`;
-                // Les amendements du Sénat n'ont pas de page interne : le
-                // lien sort vers senat.fr, l'étiquette signale la chambre.
+                lien.textContent = 'Détail →';
+                // L'étiquette signale la chambre sur les fiches sénatoriales.
                 if (a.chambre === 'senat') {
                     const chambre = document.createElement('span');
                     chambre.className = 'badge-senat';
                     chambre.textContent = 'Sénat';
                     fiche.insertBefore(chambre, intention);
-                    lien.target = '_blank';
-                    lien.rel = 'noopener';
-                    lien.textContent = 'Détail sur senat.fr ↗';
-                } else {
-                    lien.textContent = 'Détail →';
                 }
                 fiche.appendChild(lien);
 

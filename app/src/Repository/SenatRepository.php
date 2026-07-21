@@ -186,6 +186,26 @@ class SenatRepository
         return array_values($phases);
     }
 
+    /**
+     * Détail d'un amendement par son identifiant interne (« SEN » + id
+     * Ameli) : le pendant sénatorial de AmendementRepository::findOne.
+     * Borné au dossier (signet) pour qu'une page de loi ne puisse pas
+     * afficher l'amendement d'un autre texte.
+     */
+    public function findOne(string $signet, string $uid): ?array
+    {
+        if (preg_match('/^SEN(\d+)$/', $uid, $m) !== 1) {
+            return null;
+        }
+
+        $row = $this->connection->fetchAssociative(
+            self::SELECT_AMENDEMENTS . "\n  AND a.id = :id",
+            ['signet' => $signet, 'id' => (int) $m[1]]
+        );
+
+        return $row === false ? null : $this->hydrate($row);
+    }
+
     private function hydrate(array $row): array
     {
         // Le préfixe COM- des numéros distingue les amendements examinés en
@@ -269,7 +289,7 @@ class SenatRepository
      *
      * Requête lourde (regex sur les paroles) : à mettre en cache côté appelant.
      *
-     * @return list<array{numero: string, sort: string, auteur: ?string, nb_cit: int, span: int, url: string}>
+     * @return list<array{uid: string, numero: string, sort: string, auteur: ?string, nb_cit: int, span: int, url: string}>
      */
     public function classerParDebat(string $loicod, string $signet, int $limite = 3): array
     {
@@ -321,7 +341,7 @@ class SenatRepository
                 FROM grappe
                 ORDER BY id, nb_cit DESC, (hi - lo) DESC
             )
-            SELECT numero, sort, auteur, annee, texte_num, num, nb_cit, span
+            SELECT id, numero, sort, auteur, annee, texte_num, num, nb_cit, span
             FROM best
             WHERE nb_cit >= 2
             ORDER BY nb_cit DESC, span DESC
@@ -331,6 +351,7 @@ class SenatRepository
         );
 
         return array_map(static fn (array $r): array => [
+            'uid' => 'SEN' . $r['id'],
             'numero' => $r['numero'],
             'sort' => $r['sort'],
             'auteur' => $r['auteur'] === null ? null : self::recaser($r['auteur']),

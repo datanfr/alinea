@@ -174,8 +174,8 @@
                             <tr data-sort="{{ a.sort_classe }}">
                                 <td class="num">
                                     {% if phaseSenat %}
-                                        {# Pas de page interne pour les amendements Ameli : détail sur senat.fr. #}
-                                        <a href="{{ a.url_senat }}" target="_blank" rel="noopener" title="Voir sur senat.fr">{{ a.numero }} ↗</a>
+                                        <a href="{{ path('loi_amendement_senat', {id: loi.id, uid: a.uid}) }}" title="Détail et débat en séance">{{ a.numero }}</a>
+                                        <a href="{{ a.url_senat }}" target="_blank" rel="noopener" title="Voir sur senat.fr">↗</a>
                                     {% else %}
                                         <a href="{{ path('loi_amendement', {id: loi.id, uid: a.uid}) }}" title="Détail et débat en séance">{{ a.numero }}</a>
                                         <a href="{{ a.url_an }}" target="_blank" rel="noopener" title="Voir sur assemblee-nationale.fr">↗</a>

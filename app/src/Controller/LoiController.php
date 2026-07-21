@@ -370,17 +370,14 @@ class LoiController extends AbstractController
      * l'article 3 », titres, annexes, états…).
      */
     /**
-     * Lien de détail d'un amendement : page interne pour l'AN (détail, débat
-     * en séance, analyse IA), page officielle senat.fr pour le Sénat, qui
-     * n'a pas de page interne.
+     * Lien de détail d'un amendement : chaque chambre a sa page interne
+     * (détail, débat retrouvé dans les CRI, analyse IA).
      */
     private function urlAmendement(array $a, string $loiId): string
     {
-        if (($a['chambre'] ?? 'an') === 'senat') {
-            return $a['url_senat'];
-        }
+        $route = ($a['chambre'] ?? 'an') === 'senat' ? 'loi_amendement_senat' : 'loi_amendement';
 
-        return $this->generateUrl('loi_amendement', ['id' => $loiId, 'uid' => $a['uid']]);
+        return $this->generateUrl($route, ['id' => $loiId, 'uid' => $a['uid']]);
     }
 
     /**
@@ -537,6 +534,49 @@ class LoiController extends AbstractController
                 $seancesDossier,
                 $amendement['date_depot'],
                 $crCommissions
+            ),
+        ]);
+    }
+
+    /**
+     * Page d'un amendement du Sénat (Ameli) : le pendant sénatorial de la
+     * page AN, le débat étant retrouvé dans les CRI de séance publique
+     * importés (les amendements de commission COM-… n'ont pas d'extrait,
+     * les comptes rendus des réunions de commission n'étant pas importés).
+     */
+    #[Route('/loi/{id}/senat/amendement/{uid}', name: 'loi_amendement_senat', requirements: ['id' => '[A-Z0-9]{20}', 'uid' => 'SEN\d+'])]
+    public function amendementSenat(
+        string $id,
+        string $uid,
+        LoiRepository $lois,
+        AmendementRepository $amendements,
+        SenatRepository $senatRepository,
+        AnalyseAmendementIa $analyseIa,
+    ): Response {
+        $loi = $lois->find($id);
+        $dossierSenat = $loi !== null ? $senatRepository->findDossierPourLoi($loi['num']) : null;
+        $amendement = $dossierSenat !== null ? $senatRepository->findOne($dossierSenat['signet'], $uid) : null;
+
+        if ($loi === null || $amendement === null) {
+            throw $this->createNotFoundException('Amendement introuvable.');
+        }
+
+        // Analyse IA : lue en base, ou générée à la volée pour les jugés —
+        // les résumés des deux chambres sont ancrés sur le dossier AN.
+        $analyse = null;
+        $dossier = $amendements->findDossierPourLoi($loi['num']);
+        if ($dossier !== null && \in_array($amendement['sort'], ['Adopté', 'Rejeté'], true)) {
+            $analyse = $analyseIa->analyser($dossier['uid'], [$amendement])['analyses'][$uid] ?? null;
+        }
+
+        return $this->render('loi/amendement_senat.html.twig', [
+            'loi' => $loi,
+            'a' => $amendement,
+            'analyse' => $analyse,
+            'debat' => $senatRepository->findExtrait(
+                $dossierSenat['loicod'],
+                $amendement['numero'],
+                $amendement['date_depot']
             ),
         ]);
     }
