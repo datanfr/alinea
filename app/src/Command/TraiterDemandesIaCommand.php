@@ -2,6 +2,8 @@
 
 namespace App\Command;
 
+use App\Repository\AmendementRepository;
+use App\Repository\LoiRepository;
 use App\Repository\ResumeIaRepository;
 use App\Service\AnalyseAmendementIa;
 use App\Service\AnalyseArrierePlan;
@@ -39,9 +41,17 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  * avec --regenerer — le moyen de repousser en prod des analyses refaites avec
  * un meilleur modèle (upsert côté API).
  *
+ * Avec --toutes, elle traite le stock complet petit à petit : les dossiers
+ * promulgués sont classés par intérêt (consultations des pages en prod via
+ * /api/ia/interet, puis demandes des visiteurs, puis récence de
+ * promulgation), et les --lois premiers ayant des analyses manquantes sont
+ * traités. Relançable à volonté (cron) : chaque passe reprend là où la
+ * précédente s'est arrêtée, la prod se remplit au fil de l'eau.
+ *
  *   bin/console app:ia:demandes
  *   bin/console app:ia:demandes --modele=claude-haiku-4-5 --limite=50
  *   bin/console app:ia:demandes DLR5L15N36531 --regenerer
+ *   bin/console app:ia:demandes --toutes --lois=3 --modele=mistral-small3.2
  */
 #[AsCommand(
     name: 'app:ia:demandes',
@@ -59,6 +69,8 @@ class TraiterDemandesIaCommand extends Command
         #[Autowire(env: 'ALINEA_DISTANT_URL')] string $distantUrl,
         #[Autowire(env: 'IA_API_JETON')] private readonly string $jeton,
         #[Autowire(env: 'IA_MODELE')] private readonly string $modeleDefaut,
+        private readonly AmendementRepository $amendements,
+        private readonly LoiRepository $lois,
         private readonly ResumeIaRepository $resumes,
         private readonly AnalyseAmendementIa $analyseIa,
         private readonly AnalyseArrierePlan $arrierePlan,
@@ -78,7 +90,9 @@ class TraiterDemandesIaCommand extends Command
             ->addArgument('dossiers', InputArgument::IS_ARRAY, 'Dossiers AN (DLR…) à traiter directement, sans passer par les demandes')
             ->addOption('modele', 'm', InputOption::VALUE_REQUIRED, 'Modèle IA (défaut : IA_MODELE)')
             ->addOption('regenerer', 'r', InputOption::VALUE_NONE, 'Régénère aussi les analyses déjà en base (dossiers explicites uniquement)')
-            ->addOption('limite', 'l', InputOption::VALUE_REQUIRED, "Nombre maximal d'analyses par dossier");
+            ->addOption('limite', 'l', InputOption::VALUE_REQUIRED, "Nombre maximal d'analyses par dossier")
+            ->addOption('toutes', 't', InputOption::VALUE_NONE, 'Traite le stock complet par priorité (consultations, demandes, récence)')
+            ->addOption('lois', null, InputOption::VALUE_REQUIRED, 'En mode --toutes : nombre maximal de lois par passe', '2');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -95,9 +109,11 @@ class TraiterDemandesIaCommand extends Command
         $limite = $input->getOption('limite') !== null ? (int) $input->getOption('limite') : null;
         $dossiers = $input->getArgument('dossiers');
 
-        $demandes = $dossiers !== []
-            ? $this->demandesPourDossiers($io, $dossiers, $input->getOption('regenerer'))
-            : $this->demandesDeLaProd($io);
+        $demandes = match (true) {
+            $input->getOption('toutes') => $this->demandesParPriorite($io, max(1, (int) $input->getOption('lois'))),
+            $dossiers !== [] => $this->demandesPourDossiers($io, $dossiers, $input->getOption('regenerer')),
+            default => $this->demandesDeLaProd($io),
+        };
 
         if ($demandes === null) {
             return Command::FAILURE;
@@ -171,6 +187,82 @@ class TraiterDemandesIaCommand extends Command
         }
 
         return $demandes;
+    }
+
+    /**
+     * File de fond : les dossiers promulgués classés par intérêt, dont les
+     * $maxLois premiers ayant des analyses manquantes forment la passe.
+     *
+     * L'intérêt vient de la prod (/api/ia/interet) : consultations des pages
+     * de lois sur 90 jours d'abord, puis nombre de demandes déposées, puis
+     * date de promulgation. Si l'API est injoignable, la récence seule ordonne
+     * la file (le traitement continue hors ligne, la poussée échouera plus
+     * loin de toute façon).
+     *
+     * @return list<array{dossier: string, loi: string, manquants: list<string>}>|null
+     */
+    private function demandesParPriorite(SymfonyStyle $io, int $maxLois): ?array
+    {
+        $consultations = [];
+        $demandesParDossier = [];
+        try {
+            $interet = json_decode((string) $this->http->get('api/ia/interet')->getBody(), true);
+            // Consultations comptées par id JORFTEXT : ramenées au numéro de
+            // loi, la clé qui relie au dossier AN.
+            $nums = $this->lois->numsPourIds(array_keys($interet['consultations'] ?? []));
+            foreach ($interet['consultations'] ?? [] as $loiId => $nb) {
+                if (isset($nums[$loiId])) {
+                    $consultations[$nums[$loiId]] = ($consultations[$nums[$loiId]] ?? 0) + $nb;
+                }
+            }
+            foreach ($interet['demandes'] ?? [] as $d) {
+                $demandesParDossier[$d['dossier']] = ($demandesParDossier[$d['dossier']] ?? 0) + $d['nb'];
+            }
+        } catch (GuzzleException $e) {
+            $io->warning('Signaux de priorité injoignables (' . $e->getMessage() . ') : ordre par récence seule.');
+        }
+
+        // Les lois absentes de la base Légifrance n'ont pas de page dans
+        // Alinéa : leurs dossiers sortent de la file.
+        $file = $this->amendements->findDossiersPromulgues();
+        $connus = $this->lois->numsConnus(array_map(static fn (array $d): string => trim($d['num'] ?? ''), $file));
+        $file = array_values(array_filter($file, static fn (array $d): bool => isset($connus[trim($d['num'] ?? '')])));
+
+        usort($file, static fn (array $a, array $b): int =>
+            [
+                $consultations[trim($b['num'] ?? '')] ?? 0,
+                $demandesParDossier[$b['uid']] ?? 0,
+                $b['promulguee'] ?? '',
+            ] <=> [
+                $consultations[trim($a['num'] ?? '')] ?? 0,
+                $demandesParDossier[$a['uid']] ?? 0,
+                $a['promulguee'] ?? '',
+            ]);
+
+        // Descend la file jusqu'à réunir $maxLois dossiers à traiter : les
+        // dossiers déjà complets (ou sans amendement jugé) sont passés, si
+        // bien que chaque passe reprend naturellement où la précédente
+        // s'était arrêtée.
+        $passe = [];
+        foreach ($file as $dossier) {
+            if (\count($passe) >= $maxLois) {
+                break;
+            }
+
+            $uids = array_column($this->analyseIa->jugesPourDossier($dossier['uid']), 'uid');
+            if ($uids === []) {
+                continue;
+            }
+            $faites = $this->resumes->analysesAmendements($uids);
+            $manquants = array_values(array_filter($uids, static fn (string $uid): bool => !isset($faites[$uid])));
+            if ($manquants === []) {
+                continue;
+            }
+
+            $passe[] = ['dossier' => $dossier['uid'], 'loi' => trim($dossier['num'] ?? '—'), 'manquants' => $manquants];
+        }
+
+        return $passe;
     }
 
     /**

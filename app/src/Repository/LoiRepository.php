@@ -165,6 +165,58 @@ class LoiRepository
         return [];
     }
 
+    /**
+     * Numéros de loi (« 2025-532 ») d'un lot d'ids JORFTEXT : relie les
+     * consultations de pages (comptées par id) aux dossiers AN (rattachés
+     * par numéro). Les ids inconnus sont simplement absents du résultat.
+     *
+     * @param list<string> $ids
+     *
+     * @return array<string, string> id => numéro
+     */
+    public function numsPourIds(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        return $this->connection->fetchAllKeyValue(
+            "SELECT id, data->'META'->'META_SPEC'->'META_TEXTE_CHRONICLE'->>'NUM'
+             FROM legifrance.texte_version
+             WHERE id IN (?)
+               AND data->'META'->'META_SPEC'->'META_TEXTE_CHRONICLE'->>'NUM' IS NOT NULL",
+            [$ids],
+            [ArrayParameterType::STRING]
+        );
+    }
+
+    /**
+     * Parmi des numéros de loi, ceux réellement présents dans la base
+     * Légifrance locale : les autres n'ont pas de page dans Alinéa, inutile
+     * de les analyser.
+     *
+     * @param list<string> $nums
+     *
+     * @return array<string, true> numéro => présent
+     */
+    public function numsConnus(array $nums): array
+    {
+        if ($nums === []) {
+            return [];
+        }
+
+        $connus = $this->connection->fetchFirstColumn(
+            "SELECT DISTINCT data->'META'->'META_SPEC'->'META_TEXTE_CHRONICLE'->>'NUM'
+             FROM legifrance.texte_version
+             WHERE nature = 'LOI'
+               AND data->'META'->'META_SPEC'->'META_TEXTE_CHRONICLE'->>'NUM' IN (?)",
+            [$nums],
+            [ArrayParameterType::STRING]
+        );
+
+        return array_fill_keys($connus, true);
+    }
+
     private function hydrate(array $loi): array
     {
         $loi['id'] = trim($loi['id']);

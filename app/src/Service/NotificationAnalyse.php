@@ -31,7 +31,7 @@ class NotificationAnalyse
     /**
      * @param array{id: string, titre?: ?string} $loi
      */
-    public function demandeDeposee(array $loi, string $dossierUid, int $nbAmendements): void
+    public function demandeDeposee(array $loi, string $dossierUid, int $nbManquantes): void
     {
         if ($this->destinataire === '') {
             return;
@@ -55,7 +55,7 @@ class NotificationAnalyse
                 Loi : {$titre}
                 Page : {$url}
                 Dossier AN : {$dossierUid}
-                Amendements jugés à analyser : {$nbAmendements}
+                Analyses manquantes : {$nbManquantes}
 
                 Pour la traiter depuis la machine locale (Ollama) :
 

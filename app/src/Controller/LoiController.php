@@ -3,6 +3,7 @@
 namespace App\Controller;
 
 use App\Repository\AmendementRepository;
+use App\Repository\ConsultationLoiRepository;
 use App\Repository\DebatRepository;
 use App\Repository\DemandeAnalyseRepository;
 use App\Repository\JurisprudenceRepository;
@@ -56,6 +57,7 @@ class LoiController extends AbstractController
         ResumeIaRepository $resumes,
         AnalyseArrierePlan $arrierePlan,
         DemandeAnalyseRepository $demandes,
+        ConsultationLoiRepository $consultations,
         CacheInterface $cache,
         #[Autowire(env: 'bool:IA_ANALYSE_DIFFEREE')] bool $analyseDifferee,
     ): Response {
@@ -64,6 +66,10 @@ class LoiController extends AbstractController
         if ($loi === null) {
             throw $this->createNotFoundException(sprintf('Loi « %s » introuvable.', $id));
         }
+
+        // Point de consultation : priorise le traitement IA de fond
+        // (app:ia:demandes --toutes traite les lois les plus vues d'abord).
+        $consultations->compter($loi['id']);
 
         $articles = $lois->findArticles($loi['id']);
         $dossier = $amendements->findDossierPourLoi($loi['num']);
@@ -311,7 +317,9 @@ class LoiController extends AbstractController
      *     Exception : sous IA_SEUIL_ANALYSE_DIRECTE analyses manquantes, le
      *     traitement part directement en arrière-plan sur la prod, possible
      *     sans Ollama car le modèle « claude-* » passe par l'API Anthropic
-     *     (IA_MODELE et ANTHROPIC_KEY requis). 0 = toujours différer.
+     *     (IA_MODELE et ANTHROPIC_KEY requis). 0 = toujours différer : le
+     *     réglage du fonctionnement 100 % local, où chaque demande, même
+     *     petite, dépose une ligne et prévient par email.
      */
     #[Route('/loi/{id}/analyser', name: 'loi_analyser', requirements: ['id' => '[A-Z0-9]{20}'], methods: ['POST'])]
     public function analyser(
@@ -350,9 +358,10 @@ class LoiController extends AbstractController
 
                 // L'email ne part qu'à la création : les clics suivants
                 // retombent sur la demande déjà ouverte. Le compte annoncé
-                // couvre les deux chambres, comme le traitement.
+                // est celui du travail restant (les deux chambres confondues),
+                // pour jauger l'ampleur d'un coup d'œil, même petite.
                 if (!$directe && $demandes->deposer($dossier['uid'], $loi['id'])) {
-                    $notification->demandeDeposee($loi, $dossier['uid'], \count($juges));
+                    $notification->demandeDeposee($loi, $dossier['uid'], $manquantes);
                 }
             }
             if ($directe) {
@@ -496,6 +505,8 @@ class LoiController extends AbstractController
         AmendementRepository $amendements,
         DebatRepository $debats,
         AnalyseAmendementIa $analyseIa,
+        ResumeIaRepository $resumes,
+        #[Autowire(env: 'bool:IA_ANALYSE_DIFFEREE')] bool $analyseDifferee,
     ): Response {
         $loi = $lois->find($id);
         $amendement = $amendements->findOne($uid);
@@ -518,10 +529,14 @@ class LoiController extends AbstractController
         }
 
         // Analyse IA : lue en base, ou générée à la volée pour les amendements
-        // jugés (adoptés/rejetés) — un seul appel API au pire.
+        // jugés (adoptés/rejetés) — un seul appel API au pire. En mode différé
+        // (prod sans moteur IA), lecture seule : les manquantes arrivent par
+        // demande + agent local, jamais par une génération sur place.
         $analyse = null;
         if ($dossier !== null && \in_array($amendement['sort'], ['Adopté', 'Rejeté'], true)) {
-            $analyse = $analyseIa->analyser($dossier['uid'], [$amendement])['analyses'][$uid] ?? null;
+            $analyse = $analyseDifferee
+                ? $resumes->analysesAmendements([$uid])[$uid] ?? null
+                : $analyseIa->analyser($dossier['uid'], [$amendement])['analyses'][$uid] ?? null;
         }
 
         return $this->render('loi/amendement.html.twig', [
@@ -552,6 +567,8 @@ class LoiController extends AbstractController
         AmendementRepository $amendements,
         SenatRepository $senatRepository,
         AnalyseAmendementIa $analyseIa,
+        ResumeIaRepository $resumes,
+        #[Autowire(env: 'bool:IA_ANALYSE_DIFFEREE')] bool $analyseDifferee,
     ): Response {
         $loi = $lois->find($id);
         $dossierSenat = $loi !== null ? $senatRepository->findDossierPourLoi($loi['num']) : null;
@@ -562,11 +579,15 @@ class LoiController extends AbstractController
         }
 
         // Analyse IA : lue en base, ou générée à la volée pour les jugés —
-        // les résumés des deux chambres sont ancrés sur le dossier AN.
+        // les résumés des deux chambres sont ancrés sur le dossier AN. En
+        // mode différé (prod sans moteur IA), lecture seule, comme sur la
+        // page AN.
         $analyse = null;
         $dossier = $amendements->findDossierPourLoi($loi['num']);
         if ($dossier !== null && \in_array($amendement['sort'], ['Adopté', 'Rejeté'], true)) {
-            $analyse = $analyseIa->analyser($dossier['uid'], [$amendement])['analyses'][$uid] ?? null;
+            $analyse = $analyseDifferee
+                ? $resumes->analysesAmendements([$uid])[$uid] ?? null
+                : $analyseIa->analyser($dossier['uid'], [$amendement])['analyses'][$uid] ?? null;
         }
 
         return $this->render('loi/amendement_senat.html.twig', [

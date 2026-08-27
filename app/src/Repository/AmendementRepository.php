@@ -66,6 +66,26 @@ class AmendementRepository
         return \is_string($num) && $num !== '' ? $num : null;
     }
 
+    /**
+     * Tous les dossiers ayant abouti à une loi promulguée : la file du
+     * traitement IA de fond (app:ia:demandes --toutes). Le numéro de loi
+     * relie aux consultations (via legifrance) et au dossier Sénat.
+     *
+     * @return list<array{uid: string, num: string, promulguee: ?string}>
+     */
+    public function findDossiersPromulgues(): array
+    {
+        return $this->connection->fetchAllAssociative(
+            <<<'SQL'
+            SELECT uid,
+                   jsonb_path_query_first(data, '$.actesLegislatifs.** ? (@.xsiType == "Promulgation_Type").codeLoi') #>> '{}' AS num,
+                   left(jsonb_path_query_first(data, '$.actesLegislatifs.** ? (@.xsiType == "Promulgation_Type").dateActe') #>> '{}', 10) AS promulguee
+            FROM assemblee.dossiers
+            WHERE jsonb_path_exists(data, '$.actesLegislatifs.** ? (@.xsiType == "Promulgation_Type" && @.codeLoi != null)')
+            SQL
+        );
+    }
+
     public function countPourDossier(string $dossierUid): int
     {
         return (int) $this->connection->fetchOne(

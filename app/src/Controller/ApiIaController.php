@@ -2,9 +2,11 @@
 
 namespace App\Controller;
 
+use App\Repository\ConsultationLoiRepository;
 use App\Repository\DemandeAnalyseRepository;
 use App\Repository\ResumeIaRepository;
 use App\Service\AnalyseAmendementIa;
+use Doctrine\DBAL\Connection;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -19,6 +21,7 @@ use Symfony\Component\Routing\Attribute\Route;
  * app:ia:demandes) qui consomme ces trois points d'entrée :
  *
  *   GET  /api/ia/demandes                     → demandes en attente + uids à analyser
+ *   GET  /api/ia/interet                      → signaux de priorité (consultations, demandes)
  *   POST /api/ia/analyses                     → dépôt d'un lot d'analyses (upsert)
  *   POST /api/ia/demandes/{dossier}/cloture   → demande traitée
  *
@@ -61,6 +64,35 @@ class ApiIaController extends AbstractController
         }
 
         return $this->json(['demandes' => $liste]);
+    }
+
+    /**
+     * Signaux de priorité pour le traitement de fond (app:ia:demandes
+     * --toutes) : consultations des pages de lois sur 90 jours, et
+     * historique des demandes déposées (clôturées comprises), par dossier.
+     */
+    #[Route('/interet', name: 'api_ia_interet', methods: ['GET'])]
+    public function interet(
+        Request $request,
+        ConsultationLoiRepository $consultations,
+        Connection $connection,
+    ): JsonResponse {
+        $this->verifierJeton($request);
+
+        $demandes = $connection->fetchAllAssociative(
+            'SELECT dossier_uid, loi_id, count(*) AS nb, max(demande_le) AS derniere
+             FROM alinea.demande_analyse GROUP BY dossier_uid, loi_id'
+        );
+
+        return $this->json([
+            'consultations' => $consultations->totalParLoi(90),
+            'demandes' => array_map(static fn (array $d): array => [
+                'dossier' => $d['dossier_uid'],
+                'loi' => $d['loi_id'],
+                'nb' => (int) $d['nb'],
+                'derniere' => $d['derniere'],
+            ], $demandes),
+        ]);
     }
 
     /**
