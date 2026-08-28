@@ -70,6 +70,33 @@ class ResumeIaRepository
     }
 
     /**
+     * Modèle ayant produit l'analyse de chaque amendement, indexé par uid.
+     * Les amendements sans analyse sont absents du résultat ; une analyse
+     * enregistrée sans modèle connu donne une valeur nulle.
+     *
+     * Sert à deux garde-fous : lister ce qui est déjà couvert (pour ne pas
+     * refaire le travail) et refuser qu'un modèle local écrase l'analyse
+     * d'un modèle distant plus fin (voir ApiIaController::analyses).
+     *
+     * @param list<string> $uids
+     *
+     * @return array<string, ?string> uid => modèle
+     */
+    public function modelesAmendements(array $uids): array
+    {
+        if ($uids === []) {
+            return [];
+        }
+
+        return $this->connection->fetchAllKeyValue(
+            'SELECT cible_id, modele FROM alinea.resume_ia
+             WHERE type_cible = ? AND cible_id IN (?)',
+            [self::AMENDEMENT, $uids],
+            [ParameterType::STRING, ArrayParameterType::STRING]
+        );
+    }
+
+    /**
      * Enregistre (ou remplace) la synthèse d'une loi.
      */
     public function enregistrerLoi(string $loiId, string $resume, ?string $modele = null): void

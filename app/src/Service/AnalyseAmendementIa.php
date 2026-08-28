@@ -47,6 +47,19 @@ class AnalyseAmendementIa
     // plus rien au résumé et coûtent des tokens).
     private const MAX_DEBAT = 8000;
 
+    // Même plafond pour l'exposé sommaire : 99 % passent entiers (p99 ≈
+    // 6 000 caractères), seuls les exposés fleuves (max observé 47 000) sont
+    // coupés. Borne le prompt entier, ce qui permet le contexte réduit
+    // NUM_CTX côté Ollama.
+    private const MAX_EXPOSE = 8000;
+
+    // Fenêtre de contexte demandée à Ollama : système + exposé + débat
+    // tronqués + réponse tiennent par construction dans ~9 000 tokens. Le
+    // cache KV d'un contexte réduit laisse un modèle de classe 30B tenir
+    // entièrement en VRAM sur un GPU 24 Go (le défaut 32k le fait déborder
+    // en RAM : générations trois fois plus lentes).
+    private const NUM_CTX = 12288;
+
     public const CATEGORIES = [
         'coordination', 'redactionnel', 'simplification', 'correction',
         'precision', 'consequence', 'coherence', 'fond',
@@ -289,9 +302,15 @@ class AnalyseAmendementIa
                     // Structured outputs Ollama : la réponse est contrainte
                     // au schéma JSON.
                     'format' => self::SCHEMA,
+                    // Modèles à raisonnement (qwen3…) : sans cela, la
+                    // réflexion interne consomme tout num_predict et le
+                    // contenu revient vide (done_reason « length »). Les
+                    // modèles sans raisonnement ignorent le paramètre.
+                    'think' => false,
                     'options' => [
                         'num_predict' => 2000,
                         'temperature' => 0.2,
+                        'num_ctx' => self::NUM_CTX,
                     ],
                 ],
             ]);
@@ -361,7 +380,11 @@ class AnalyseAmendementIa
         )];
 
         if (!empty($amendement['expose_sommaire'])) {
-            $parties[] = "Exposé sommaire :\n" . $this->aplatir($amendement['expose_sommaire']);
+            $expose = $this->aplatir($amendement['expose_sommaire']);
+            if (mb_strlen($expose) > self::MAX_EXPOSE) {
+                $expose = mb_substr($expose, 0, self::MAX_EXPOSE) . ' […]';
+            }
+            $parties[] = "Exposé sommaire :\n" . $expose;
         }
 
         // L'extrait de débat se cherche dans les comptes rendus de la chambre
@@ -376,7 +399,8 @@ class AnalyseAmendementIa
                 $amendement['numero'],
                 $contexte['seances'],
                 $amendement['date_depot'] ?? null,
-                $contexte['crCommissions']
+                $contexte['crCommissions'],
+                isset($amendement['legislature']) ? (int) $amendement['legislature'] : null
             );
 
         if ($debat !== null) {

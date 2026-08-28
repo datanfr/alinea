@@ -548,7 +548,8 @@ class LoiController extends AbstractController
                 $amendement['numero'],
                 $seancesDossier,
                 $amendement['date_depot'],
-                $crCommissions
+                $crCommissions,
+                isset($amendement['legislature']) ? (int) $amendement['legislature'] : null
             ),
         ]);
     }

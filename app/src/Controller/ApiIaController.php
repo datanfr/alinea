@@ -22,8 +22,15 @@ use Symfony\Component\Routing\Attribute\Route;
  *
  *   GET  /api/ia/demandes                     → demandes en attente + uids à analyser
  *   GET  /api/ia/interet                      → signaux de priorité (consultations, demandes)
+ *   POST /api/ia/analysees                    → parmi des uids, ceux déjà analysés ici
  *   POST /api/ia/analyses                     → dépôt d'un lot d'analyses (upsert)
  *   POST /api/ia/demandes/{dossier}/cloture   → demande traitée
+ *
+ * La prod est la source de vérité de ce qui est publié : sa base contient
+ * des analyses que la machine locale n'a pas (celles qu'elle a générées
+ * elle-même quand IA_SEUIL_ANALYSE_DIRECTE était non nul). L'agent local
+ * interroge donc /analysees avant de travailler, sans quoi il refait — et
+ * dégrade — ce qui existe déjà.
  *
  * Sécurité : jeton partagé IA_API_JETON, transmis en Authorization: Bearer,
  * comparé en temps constant. Jeton vide côté serveur = API désactivée (404,
@@ -96,12 +103,43 @@ class ApiIaController extends AbstractController
     }
 
     /**
+     * Parmi une liste d'uids, ceux qui ont déjà une analyse ici, avec le
+     * modèle qui l'a produite. Corps attendu : { "uids": ["AMANR5…", …] }.
+     *
+     * POST plutôt que GET : la liste porte volontiers plusieurs milliers
+     * d'uids, ce qui déborde une URL. Sans effet de bord malgré le verbe.
+     */
+    #[Route('/analysees', name: 'api_ia_analysees', methods: ['POST'])]
+    public function analysees(Request $request, ResumeIaRepository $resumes): JsonResponse
+    {
+        $this->verifierJeton($request);
+
+        $corps = json_decode($request->getContent(), true);
+        if (!\is_array($corps) || !\is_array($corps['uids'] ?? null)) {
+            return $this->json(['erreur' => 'Corps JSON attendu : {uids: [...]}.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $uids = array_values(array_filter(
+            $corps['uids'],
+            static fn (mixed $uid): bool => \is_string($uid) && preg_match('/^[A-Z0-9]{1,40}$/', $uid) === 1
+        ));
+
+        return $this->json(['analysees' => $resumes->modelesAmendements($uids)]);
+    }
+
+    /**
      * Dépose un lot d'analyses générées ailleurs. Corps attendu :
      *   { "modele": "gemma4:latest", "analyses": [ { "uid": "AMANR5…",
      *     "resume": "…", "resume_detaille": null, "intention": "…",
      *     "ambiguite": 30, "categorie": "fond", "score_impact": 55 }, … ] }
      * Les entrées invalides sont rejetées une à une (listées dans la réponse),
      * les valides sont enregistrées — l'agent peut réessayer sans tout renvoyer.
+     *
+     * Garde-fou de qualité : une analyse produite par un modèle distant
+     * (« claude-* », les plus fins) n'est jamais remplacée par celle d'un
+     * modèle local. Ces entrées sont ignorées et listées à part, sauf si le
+     * corps porte « force »: true — le seul cas où l'on assume le
+     * remplacement (régénération volontaire après changement de prompt).
      */
     #[Route('/analyses', name: 'api_ia_analyses', methods: ['POST'])]
     public function analyses(Request $request, ResumeIaRepository $resumes): JsonResponse
@@ -114,8 +152,17 @@ class ApiIaController extends AbstractController
         }
 
         $modele = \is_string($corps['modele'] ?? null) ? $corps['modele'] : null;
+        $force = ($corps['force'] ?? false) === true;
+
+        // Modèles en place pour tout le lot, en une requête.
+        $enPlace = $resumes->modelesAmendements(array_values(array_filter(
+            array_map(static fn (mixed $e): mixed => \is_array($e) ? ($e['uid'] ?? null) : null, $corps['analyses']),
+            static fn (mixed $uid): bool => \is_string($uid)
+        )));
+
         $enregistrees = 0;
         $rejetees = [];
+        $ignorees = [];
 
         foreach ($corps['analyses'] as $i => $entree) {
             $analyse = $this->normaliser($entree);
@@ -124,11 +171,34 @@ class ApiIaController extends AbstractController
                 continue;
             }
 
+            if (!$force && $this->seraitUneRegression($enPlace[$entree['uid']] ?? null, $modele)) {
+                $ignorees[] = $entree['uid'];
+                continue;
+            }
+
             $resumes->enregistrerAmendement($entree['uid'], $analyse, $modele);
             ++$enregistrees;
         }
 
-        return $this->json(['enregistrees' => $enregistrees, 'rejetees' => $rejetees]);
+        return $this->json([
+            'enregistrees' => $enregistrees,
+            'rejetees' => $rejetees,
+            'ignorees' => $ignorees,
+        ]);
+    }
+
+    /**
+     * Remplacer l'analyse d'un modèle distant par celle d'un modèle local
+     * dégrade la page : les « claude-* » jugent l'impact et l'ambiguïté plus
+     * finement que les modèles tournant sur une machine de bureau. Tout le
+     * reste est permis : première analyse, modèle local par un autre, ou
+     * montée vers un modèle distant.
+     */
+    private function seraitUneRegression(?string $enPlace, ?string $entrant): bool
+    {
+        return $enPlace !== null
+            && str_starts_with($enPlace, 'claude-')
+            && !str_starts_with((string) $entrant, 'claude-');
     }
 
     #[Route('/demandes/{dossier}/cloture', name: 'api_ia_cloture', requirements: ['dossier' => '[A-Z0-9]+'], methods: ['POST'])]

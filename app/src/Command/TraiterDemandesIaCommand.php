@@ -4,7 +4,6 @@ namespace App\Command;
 
 use App\Repository\AmendementRepository;
 use App\Repository\LoiRepository;
-use App\Repository\ResumeIaRepository;
 use App\Service\AnalyseAmendementIa;
 use App\Service\AnalyseArrierePlan;
 use GuzzleHttp\Client as HttpClient;
@@ -30,16 +29,21 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  *   3. POST {ALINEA_DISTANT_URL}/api/ia/analyses          → lots de 10
  *   4. POST {ALINEA_DISTANT_URL}/api/ia/demandes/…/cloture
  *
- * Les analyses sont aussi persistées en base locale (regenerer) : local et
- * prod restent alignés. Un amendement absent de la base locale (retard de
- * sync) est signalé et sauté — relancer après app:sync:canutes. Le périmètre
- * d'un dossier couvre les deux chambres : amendements AN (AMANR…) et, si la
- * loi a un dossier sénatorial, amendements du Sénat (SEN…).
+ * Les analyses sont aussi persistées en base locale, mais c'est la PROD qui
+ * fait foi sur ce qui reste à faire : sa base contient des analyses que la
+ * machine locale n'a jamais vues (celles qu'elle a générées elle-même du
+ * temps où IA_SEUIL_ANALYSE_DIRECTE était non nul). Toute sélection
+ * d'amendements à traiter passe donc par /api/ia/analysees ; sans cette
+ * réponse la commande s'arrête, plutôt que de refaire à l'aveugle un travail
+ * déjà publié. Un amendement absent de la base locale (retard de sync) est
+ * signalé et sauté : relancer après app:sync:canutes. Le périmètre d'un
+ * dossier couvre les deux chambres : amendements AN (AMANR…) et, si la loi a
+ * un dossier sénatorial, amendements du Sénat (SEN…).
  *
  * Avec des dossiers en argument, la commande ignore les demandes ouvertes et
- * traite ces dossiers-là : les analyses manquantes en base locale, ou toutes
- * avec --regenerer — le moyen de repousser en prod des analyses refaites avec
- * un meilleur modèle (upsert côté API).
+ * traite ces dossiers-là : les analyses que la prod n'a pas, ou toutes avec
+ * --regenerer. La prod refuse de son côté qu'un modèle local remplace une
+ * analyse « claude-* » (voir ApiIaController::analyses).
  *
  * Avec --toutes, elle traite le stock complet petit à petit : les dossiers
  * promulgués sont classés par intérêt (consultations des pages en prod via
@@ -63,6 +67,11 @@ class TraiterDemandesIaCommand extends Command
     // visible en prod au fil de l'eau, assez grand pour limiter les requêtes.
     private const TAILLE_LOT = 10;
 
+    // Nombre de dossiers dont on sonde la couverture en une requête (mode
+    // --toutes). Un dossier porte quelques centaines d'uids : au-delà, le
+    // corps de la requête devient inutilement gros.
+    private const FENETRE_SONDAGE = 15;
+
     private readonly HttpClient $http;
 
     public function __construct(
@@ -71,7 +80,6 @@ class TraiterDemandesIaCommand extends Command
         #[Autowire(env: 'IA_MODELE')] private readonly string $modeleDefaut,
         private readonly AmendementRepository $amendements,
         private readonly LoiRepository $lois,
-        private readonly ResumeIaRepository $resumes,
         private readonly AnalyseAmendementIa $analyseIa,
         private readonly AnalyseArrierePlan $arrierePlan,
     ) {
@@ -157,9 +165,9 @@ class TraiterDemandesIaCommand extends Command
 
     /**
      * Pseudo-demandes pour des dossiers passés en argument : tous les
-     * amendements jugés avec --regenerer, sinon seulement ceux sans analyse
-     * en base locale (miroir de la prod puisque chaque génération est
-     * poussée). Null si un uid de dossier est invalide.
+     * amendements jugés avec --regenerer, sinon seulement ceux que la prod
+     * n'a pas encore analysés. Null si un uid de dossier est invalide ou si
+     * la couverture de la prod est inconnue.
      *
      * @param list<string> $dossiers
      *
@@ -167,7 +175,7 @@ class TraiterDemandesIaCommand extends Command
      */
     private function demandesPourDossiers(SymfonyStyle $io, array $dossiers, bool $regenerer): ?array
     {
-        $demandes = [];
+        $parDossier = [];
         foreach ($dossiers as $dossier) {
             if (preg_match('/^[A-Z0-9]+$/', $dossier) !== 1) {
                 $io->error(sprintf('Dossier invalide : « %s » (attendu : DLR…).', $dossier));
@@ -175,18 +183,68 @@ class TraiterDemandesIaCommand extends Command
                 return null;
             }
 
-            $uids = array_column($this->analyseIa->jugesPourDossier($dossier), 'uid');
-            if (!$regenerer) {
-                $faites = $this->resumes->analysesAmendements($uids);
-                $uids = array_values(array_filter($uids, static fn (string $uid): bool => !isset($faites[$uid])));
-            }
+            $parDossier[$dossier] = array_column($this->analyseIa->jugesPourDossier($dossier), 'uid');
+        }
 
+        if (!$regenerer) {
+            $couverture = $this->couvertureProd($io, array_merge(...array_values($parDossier)) ?: []);
+            if ($couverture === null) {
+                return null;
+            }
+            foreach ($parDossier as $dossier => $uids) {
+                $parDossier[$dossier] = array_values(array_filter(
+                    $uids,
+                    static fn (string $uid): bool => !\array_key_exists($uid, $couverture)
+                ));
+            }
+        }
+
+        $demandes = [];
+        foreach ($parDossier as $dossier => $uids) {
             if ($uids !== []) {
                 $demandes[] = ['dossier' => $dossier, 'loi' => '—', 'manquants' => $uids];
             }
         }
 
         return $demandes;
+    }
+
+    /**
+     * Analyses déjà présentes en prod parmi ces uids (uid => modèle), en une
+     * requête. Null si la prod est injoignable : sans cette réponse on
+     * ignore ce qui existe déjà, et travailler à l'aveugle refait — voire
+     * écrase — des analyses publiées.
+     *
+     * @param list<string> $uids
+     *
+     * @return array<string, ?string>|null
+     */
+    private function couvertureProd(SymfonyStyle $io, array $uids): ?array
+    {
+        if ($uids === []) {
+            return [];
+        }
+
+        try {
+            $reponse = $this->http->post('api/ia/analysees', ['json' => ['uids' => array_values($uids)]]);
+        } catch (GuzzleException $e) {
+            $io->error(sprintf(
+                "Couverture de la prod inconnue (%s) : arrêt pour ne pas refaire ce qui existe déjà.\n"
+                . 'Si la prod ne tourne pas encore avec cette version, déployer puis relancer.',
+                $e->getMessage()
+            ));
+
+            return null;
+        }
+
+        $analysees = json_decode((string) $reponse->getBody(), true)['analysees'] ?? null;
+        if (!\is_array($analysees)) {
+            $io->error('Réponse inattendue de /api/ia/analysees (prod à jour ?).');
+
+            return null;
+        }
+
+        return $analysees;
     }
 
     /**
@@ -242,24 +300,42 @@ class TraiterDemandesIaCommand extends Command
         // Descend la file jusqu'à réunir $maxLois dossiers à traiter : les
         // dossiers déjà complets (ou sans amendement jugé) sont passés, si
         // bien que chaque passe reprend naturellement où la précédente
-        // s'était arrêtée.
+        // s'était arrêtée. La couverture se demande à la prod par fenêtres
+        // de dossiers, pour n'y faire que quelques requêtes.
         $passe = [];
-        foreach ($file as $dossier) {
+        foreach (array_chunk($file, self::FENETRE_SONDAGE) as $fenetre) {
             if (\count($passe) >= $maxLois) {
                 break;
             }
 
-            $uids = array_column($this->analyseIa->jugesPourDossier($dossier['uid']), 'uid');
-            if ($uids === []) {
-                continue;
+            $parDossier = [];
+            foreach ($fenetre as $dossier) {
+                $uids = array_column($this->analyseIa->jugesPourDossier($dossier['uid']), 'uid');
+                if ($uids !== []) {
+                    $parDossier[$dossier['uid']] = ['num' => trim($dossier['num'] ?? '—'), 'uids' => $uids];
+                }
             }
-            $faites = $this->resumes->analysesAmendements($uids);
-            $manquants = array_values(array_filter($uids, static fn (string $uid): bool => !isset($faites[$uid])));
-            if ($manquants === []) {
+            if ($parDossier === []) {
                 continue;
             }
 
-            $passe[] = ['dossier' => $dossier['uid'], 'loi' => trim($dossier['num'] ?? '—'), 'manquants' => $manquants];
+            $couverture = $this->couvertureProd($io, array_merge(...array_column($parDossier, 'uids')));
+            if ($couverture === null) {
+                return null;
+            }
+
+            foreach ($parDossier as $uid => $d) {
+                if (\count($passe) >= $maxLois) {
+                    break;
+                }
+                $manquants = array_values(array_filter(
+                    $d['uids'],
+                    static fn (string $u): bool => !\array_key_exists($u, $couverture)
+                ));
+                if ($manquants !== []) {
+                    $passe[] = ['dossier' => $uid, 'loi' => $d['num'], 'manquants' => $manquants];
+                }
+            }
         }
 
         return $passe;
@@ -384,7 +460,19 @@ class TraiterDemandesIaCommand extends Command
 
         $retour = json_decode((string) $reponse->getBody(), true);
         if (!empty($retour['rejetees'])) {
-            $io->warning('Rejetées par la prod : ' . implode(', ', $retour['rejetees']));
+            $io->warning('Rejetées par la prod (entrées invalides) : ' . implode(', ', $retour['rejetees']));
+        }
+        // Le garde-fou de la prod : ces amendements avaient déjà une analyse
+        // d'un modèle distant, qu'un modèle local n'a pas à remplacer. Le
+        // signaler haut et fort, c'est le symptôme d'une file mal filtrée.
+        if (!empty($retour['ignorees'])) {
+            $io->warning(sprintf(
+                '%d analyse(s) ignorée(s) par la prod : une analyse « claude-* » y existe déjà '
+                . "(le travail local a été fait pour rien).\nSignalement : %s",
+                \count($retour['ignorees']),
+                implode(', ', \array_slice($retour['ignorees'], 0, 5))
+                    . (\count($retour['ignorees']) > 5 ? '…' : '')
+            ));
         }
 
         return true;

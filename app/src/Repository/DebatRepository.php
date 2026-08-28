@@ -58,6 +58,7 @@ class DebatRepository
         array $seancesDossier = [],
         ?string $dateDepot = null,
         array $crCommissions = [],
+        ?int $legislature = null,
     ): ?array {
         // Amendements de commission : numéro préfixé par l'organe (CL151,
         // CE751…). Le numéro n'est cité qu'une fois — dans l'en-tête
@@ -66,7 +67,7 @@ class DebatRepository
         // seconde mention (absente ici).
         if (preg_match('/^[A-Z]{2,6}\d+$/', $numero)) {
             $regex = '(^|[^0-9A-Za-z])' . $numero . '([^0-9]|$)';
-            foreach ($this->comptesRendusCommission($crCommissions, $dateDepot) as $compteRendu) {
+            foreach ($this->comptesRendusCommission($crCommissions, $dateDepot, $legislature) as $compteRendu) {
                 $extrait = $this->extraireFenetreCommission($compteRendu, $regex);
                 if ($extrait !== null) {
                     return $extrait;
@@ -111,21 +112,40 @@ class DebatRepository
      *
      * @return list<array<string, mixed>>
      */
-    private function comptesRendusCommission(array $crUids, ?string $dateDepot): array
+    private function comptesRendusCommission(array $crUids, ?string $dateDepot, ?int $legislature = null): array
     {
         if ($crUids === []) {
             return [];
         }
 
+        // Filtre par législature indispensable : la numérotation CL/CE
+        // recommence à chaque législature, et un dossier qui traverse une
+        // dissolution contient deux amendements du même numéro (CL11 de la
+        // 15e et de la 17e). Sans ce filtre, la fenêtre de discussion
+        // retrouvée peut être celle de l'homonyme — la date de dépôt seule
+        // ne protège pas, l'homonyme postérieur passant le filtre.
+        $conditions = '';
+        $params = [$crUids];
+        $types = [ArrayParameterType::STRING];
+
+        if ($dateDepot !== null) {
+            $conditions .= ' AND date_seance::date >= ?';
+            $params[] = $dateDepot;
+            $types[] = ParameterType::STRING;
+        }
+        if ($legislature !== null) {
+            $conditions .= ' AND legislature = ?';
+            $params[] = $legislature;
+            $types[] = ParameterType::INTEGER;
+        }
+
         return $this->connection->fetchAllAssociative(
             'SELECT uid, date_seance, num_seance_jour, session_libelle, legislature, type, url_page
              FROM alinea.compte_rendu
-             WHERE uid IN (?)' . ($dateDepot !== null ? ' AND date_seance::date >= ?' : '') . '
+             WHERE uid IN (?)' . $conditions . '
              ORDER BY date_seance',
-            $dateDepot !== null ? [$crUids, $dateDepot] : [$crUids],
-            $dateDepot !== null
-                ? [ArrayParameterType::STRING, ParameterType::STRING]
-                : [ArrayParameterType::STRING]
+            $params,
+            $types
         );
     }
 
