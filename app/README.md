@@ -151,3 +151,29 @@ La prod ne génère jamais elle-même (`IA_ANALYSE_DIFFEREE=1`,
 ligne dans `alinea.demande_analyse` et prévient par email
 (`NOTIFICATION_EMAIL`). L'agent local les traite au prochain
 `app:ia:demandes`, qui clôture les demandes servies.
+
+### Prévenir le visiteur quand c'est prêt
+
+À côté du bouton d'analyse, un champ facultatif recueille l'adresse du
+visiteur (« vous prévenir par email quand c'est prêt ? »). Le même champ est
+proposé sur une loi dont l'analyse est déjà en cours ou en attente, via
+`POST /loi/{id}/prevenir`. L'adresse va dans `alinea.abonne_analyse`
+(`sql/abonne_analyse.sql`, à jouer une fois, comme les autres fichiers de
+`sql/`).
+
+L'email part quand le dossier est terminé, aux deux seuls endroits où cela
+se produit :
+
+- `POST /api/ia/demandes/{dossier}/cloture`, quand l'agent local a poussé
+  toutes les analyses du dossier (flux différé) ; la réponse indique le
+  nombre d'alertes envoyées ;
+- la fin de `app:ia:analyser`, s'il ne manque plus aucune analyse du
+  dossier (génération sur place, en local comme sous
+  `IA_SEUIL_ANALYSE_DIRECTE`).
+
+La ligne est supprimée dès l'envoi : l'adresse ne sert à rien d'autre, et
+les inscriptions dont l'analyse n'est jamais venue sont purgées au bout de
+six mois. Un envoi en échec conserve l'inscription, retentée à la prochaine
+fin d'analyse du dossier ; un dossier est plafonné à 50 adresses en attente,
+pour que le formulaire ne serve pas à faire envoyer des messages en nombre.
+Comme le reste du flux, il faut un `MAILER_DSN` réel côté prod.

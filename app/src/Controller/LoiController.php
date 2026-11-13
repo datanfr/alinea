@@ -2,6 +2,7 @@
 
 namespace App\Controller;
 
+use App\Repository\AbonneAnalyseRepository;
 use App\Repository\AmendementRepository;
 use App\Repository\ConsultationLoiRepository;
 use App\Repository\DebatRepository;
@@ -330,6 +331,7 @@ class LoiController extends AbstractController
         AnalyseAmendementIa $analyseIa,
         AnalyseArrierePlan $arrierePlan,
         DemandeAnalyseRepository $demandes,
+        AbonneAnalyseRepository $abonnes,
         NotificationAnalyse $notification,
         ResumeIaRepository $resumes,
         #[Autowire(env: 'bool:IA_ANALYSE_DIFFEREE')] bool $analyseDifferee,
@@ -367,9 +369,82 @@ class LoiController extends AbstractController
             if ($directe) {
                 $arrierePlan->lancer($dossier['uid']);
             }
+
+            // Champ facultatif du formulaire : une adresse pour être prévenu
+            // quand l'analyse sera en ligne. Une saisie invalide n'annule
+            // jamais l'analyse, elle ne fait pas poser l'alerte.
+            $this->inscrireAlerte($request, $loi, $dossier['uid'], $abonnes);
         }
 
         return $this->redirectToRoute('loi_show', ['id' => $id]);
+    }
+
+    /**
+     * Même alerte, demandée depuis une loi dont l'analyse est déjà lancée
+     * (traitement en cours, ou demande en attente chez l'agent local) : il
+     * n'y a plus rien à déclencher, seulement une adresse à retenir.
+     */
+    #[Route('/loi/{id}/prevenir', name: 'loi_prevenir', requirements: ['id' => '[A-Z0-9]{20}'], methods: ['POST'])]
+    public function prevenir(
+        string $id,
+        Request $request,
+        LoiRepository $lois,
+        AmendementRepository $amendements,
+        AbonneAnalyseRepository $abonnes,
+    ): Response {
+        $loi = $lois->find($id);
+
+        if ($loi === null) {
+            throw $this->createNotFoundException(sprintf('Loi « %s » introuvable.', $id));
+        }
+
+        if (!$this->isCsrfTokenValid('prevenir' . $id, $request->getPayload()->getString('_token'))) {
+            throw $this->createAccessDeniedException('Jeton CSRF invalide.');
+        }
+
+        $dossier = $amendements->findDossierPourLoi($loi['num']);
+        if ($dossier !== null) {
+            $this->inscrireAlerte($request, $loi, $dossier['uid'], $abonnes);
+        }
+
+        return $this->redirectToRoute('loi_show', ['id' => $id]);
+    }
+
+    /**
+     * Retient l'adresse laissée par un visiteur pour l'analyse d'un dossier,
+     * et lui dit ce qu'il en est. Champ vide : rien à faire, l'alerte est
+     * facultative.
+     *
+     * @param array{id: string} $loi
+     */
+    private function inscrireAlerte(
+        Request $request,
+        array $loi,
+        string $dossierUid,
+        AbonneAnalyseRepository $abonnes,
+    ): void {
+        $email = trim($request->getPayload()->getString('email'));
+
+        if ($email === '') {
+            return;
+        }
+
+        if (mb_strlen($email) > 180 || filter_var($email, \FILTER_VALIDATE_EMAIL) === false) {
+            $this->addFlash('analyse_erreur', "L'adresse email indiquée n'est pas valide : aucune alerte n'a été enregistrée.");
+
+            return;
+        }
+
+        if (!$abonnes->inscrire($dossierUid, $loi['id'], $email)) {
+            $this->addFlash('analyse_erreur', "L'alerte email n'a pas pu être enregistrée. Repassez sur cette page dans quelques heures, l'analyse y sera.");
+
+            return;
+        }
+
+        $this->addFlash('analyse_succes', sprintf(
+            'C\'est noté : un email partira à %s dès que l\'analyse de cette loi sera disponible.',
+            $email
+        ));
     }
 
     /**

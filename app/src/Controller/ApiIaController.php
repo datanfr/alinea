@@ -6,6 +6,7 @@ use App\Repository\ConsultationLoiRepository;
 use App\Repository\DemandeAnalyseRepository;
 use App\Repository\ResumeIaRepository;
 use App\Service\AnalyseAmendementIa;
+use App\Service\NotificationAnalyse;
 use Doctrine\DBAL\Connection;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
@@ -201,14 +202,26 @@ class ApiIaController extends AbstractController
             && !str_starts_with((string) $entrant, 'claude-');
     }
 
+    /**
+     * L'agent local ne clôture qu'un dossier entièrement servi : c'est donc
+     * ici, et nulle part ailleurs dans le flux différé, que « l'analyse est
+     * prête » pour les visiteurs qui ont laissé leur adresse.
+     */
     #[Route('/demandes/{dossier}/cloture', name: 'api_ia_cloture', requirements: ['dossier' => '[A-Z0-9]+'], methods: ['POST'])]
-    public function cloture(string $dossier, Request $request, DemandeAnalyseRepository $demandes): JsonResponse
-    {
+    public function cloture(
+        string $dossier,
+        Request $request,
+        DemandeAnalyseRepository $demandes,
+        NotificationAnalyse $notification,
+    ): JsonResponse {
         $this->verifierJeton($request);
 
         $demandes->cloturer($dossier);
 
-        return $this->json(['cloturee' => $dossier]);
+        return $this->json([
+            'cloturee' => $dossier,
+            'alertes' => $notification->analyseTerminee($dossier),
+        ]);
     }
 
     /**

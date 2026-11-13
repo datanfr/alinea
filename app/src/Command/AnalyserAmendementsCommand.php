@@ -5,6 +5,7 @@ namespace App\Command;
 use App\Repository\ResumeIaRepository;
 use App\Service\AnalyseAmendementIa;
 use App\Service\AnalyseArrierePlan;
+use App\Service\NotificationAnalyse;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -33,6 +34,7 @@ class AnalyserAmendementsCommand extends Command
         private readonly ResumeIaRepository $resumes,
         private readonly AnalyseAmendementIa $analyseIa,
         private readonly AnalyseArrierePlan $arrierePlan,
+        private readonly NotificationAnalyse $notification,
     ) {
         parent::__construct();
     }
@@ -132,6 +134,19 @@ class AnalyserAmendementsCommand extends Command
         }
 
         $io->success(sprintf('%d analyses générées sur %d.', $reussies, \count($aTraiter)));
+
+        // Le dossier peut rester incomplet (option --limite, échecs isolés) :
+        // les visiteurs qui attendent ne sont prévenus que s'il ne manque
+        // plus rien. Sur la machine locale, la table des inscriptions est
+        // vide : ces alertes-là partent de la prod, à la clôture de la
+        // demande (POST /api/ia/demandes/{dossier}/cloture).
+        $restantes = \count($juges) - \count($this->resumes->analysesAmendements(array_column($juges, 'uid')));
+        if ($restantes === 0) {
+            $alertes = $this->notification->analyseTerminee($dossier);
+            if ($alertes > 0) {
+                $io->writeln(sprintf('%d visiteur(s) prévenu(s) par email.', $alertes));
+            }
+        }
 
         return $reussies === \count($aTraiter) ? Command::SUCCESS : Command::FAILURE;
     }

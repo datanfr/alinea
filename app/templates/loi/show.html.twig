@@ -97,6 +97,8 @@
     }
     .statut-ia.complet { border-left: 4px solid #2e7d32; color: #2e7d32; background: #f1f8f1; }
     .statut-ia.en-cours { border-left: 4px solid var(--bleu); background: var(--fond); }
+    .statut-ia.echec { border-left: 4px solid var(--rouge); color: #a03215; background: #fdecea; }
+    .statut-ia p { margin: 0; }
     .statut-ia.a-faire {
         display: flex;
         align-items: center;
@@ -105,7 +107,7 @@
         border-left: 4px solid var(--gris);
         background: var(--fond);
     }
-    .statut-ia.a-faire button {
+    .statut-ia button {
         font-family: var(--police);
         font-size: .9rem;
         color: #fff;
@@ -115,7 +117,27 @@
         padding: .5rem 1rem;
         cursor: pointer;
     }
-    .statut-ia.a-faire button:hover { background: var(--bleu-hover); }
+    .statut-ia button:hover { background: var(--bleu-hover); }
+    /* Alerte facultative : l'adresse ne sert qu'à prévenir une fois l'analyse
+       en ligne, elle est effacée aussitôt (voir sql/abonne_analyse.sql). */
+    .alerte-email {
+        flex-basis: 100%;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: .6rem;
+        margin-top: .2rem;
+        color: var(--gris);
+    }
+    .statut-ia.en-cours .alerte-email { margin-top: .8rem; }
+    .alerte-email input {
+        font-family: inherit;
+        font-size: .9rem;
+        padding: .45rem .7rem;
+        border: 1px solid var(--bordure);
+        border-radius: .25rem;
+        min-width: 15rem;
+    }
     /* Modale de confirmation avant une analyse coûteuse (> 50 amendements). */
     .modale-analyse {
         max-width: 32rem;
@@ -913,16 +935,35 @@
         {% endif %}
     </header>
 
+    {% for message in app.flashes('analyse_succes') %}
+        <p class="statut-ia complet">{{ message }}</p>
+    {% endfor %}
+    {% for message in app.flashes('analyse_erreur') %}
+        <p class="statut-ia echec">{{ message }}</p>
+    {% endfor %}
+
     {% if statutIa == 'complet' %}
         <p class="statut-ia complet">✓ Tous les amendements ont été traités
             ({{ totalJuges }} analyse{{ totalJuges > 1 ? 's' : '' }} IA).</p>
-    {% elseif statutIa == 'en_cours' %}
-        <p class="statut-ia en-cours">Les amendements de cette loi sont en cours de traitement —
-            {{ analysesFaites }}/{{ totalJuges }} analysés. Rechargez la page pour suivre l'avancement.</p>
-    {% elseif statutIa == 'demande' %}
-        <p class="statut-ia en-cours">L'analyse de cette loi a été demandée
-            {%- if analysesFaites > 0 %} ({{ analysesFaites }}/{{ totalJuges }} amendements déjà analysés){% endif %} —
-            elle sera disponible prochainement, repassez d'ici quelques heures.</p>
+    {% elseif statutIa == 'en_cours' or statutIa == 'demande' %}
+        {# Analyse déjà lancée : il ne reste au visiteur qu'à être prévenu. #}
+        <div class="statut-ia en-cours">
+            {% if statutIa == 'en_cours' %}
+                <p>Les amendements de cette loi sont en cours de traitement —
+                    {{ analysesFaites }}/{{ totalJuges }} analysés. Rechargez la page pour suivre l'avancement.</p>
+            {% else %}
+                <p>L'analyse de cette loi a été demandée
+                    {%- if analysesFaites > 0 %} ({{ analysesFaites }}/{{ totalJuges }} amendements déjà analysés){% endif %} —
+                    elle sera disponible prochainement, repassez d'ici quelques heures.</p>
+            {% endif %}
+            <form class="alerte-email" method="post" action="{{ path('loi_prevenir', {id: loi.id}) }}">
+                <input type="hidden" name="_token" value="{{ csrf_token('prevenir' ~ loi.id) }}">
+                <label for="alerte-email">Vous prévenir par email quand c'est prêt ?</label>
+                <input id="alerte-email" type="email" name="email" maxlength="180" required
+                       autocomplete="email" placeholder="vous@exemple.fr">
+                <button type="submit">Me prévenir</button>
+            </form>
+        </div>
     {% elseif statutIa == 'a_faire' %}
         <form id="form-analyse" class="statut-ia a-faire" method="post" action="{{ path('loi_analyser', {id: loi.id}) }}">
             <input type="hidden" name="_token" value="{{ csrf_token('analyser' ~ loi.id) }}">
@@ -930,6 +971,11 @@
                 entièrement ({{ analysesFaites }}/{{ totalJuges }} amendements analysés){% endif %},
                 cliquez ici pour le faire, cela peut prendre quelques heures.</span>
             <button type="submit">Lancer l'analyse IA</button>
+            <span class="alerte-email">
+                <label for="alerte-email">Vous prévenir par email quand c'est prêt ? (facultatif)</label>
+                <input id="alerte-email" type="email" name="email" maxlength="180"
+                       autocomplete="email" placeholder="vous@exemple.fr">
+            </span>
         </form>
         {# Au-delà de 50 amendements à analyser, un clic engage un vrai coût
            d'API : une modale demande de confirmer avant de déposer la demande.
