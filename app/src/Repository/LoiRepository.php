@@ -166,6 +166,23 @@ class LoiRepository
     }
 
     /**
+     * Ids de toutes les lois qui ont une page (publiées au JO, en vigueur ou
+     * non), les plus récentes d'abord : alimente le sitemap.
+     *
+     * @return list<string>
+     */
+    public function findIdsPourSitemap(): array
+    {
+        $ids = $this->connection->fetchFirstColumn(
+            "SELECT id FROM legifrance.texte_version
+             WHERE nature = 'LOI' AND id LIKE 'JORFTEXT%'
+             ORDER BY " . self::DATE_TRI . ' DESC NULLS LAST, id DESC'
+        );
+
+        return array_map('trim', $ids);
+    }
+
+    /**
      * Numéros de loi (« 2025-532 ») d'un lot d'ids JORFTEXT : relie les
      * consultations de pages (comptées par id) aux dossiers AN (rattachés
      * par numéro). Les ids inconnus sont simplement absents du résultat.

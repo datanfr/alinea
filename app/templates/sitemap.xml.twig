@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url><loc>{{ url('loi_index') }}</loc></url>
+{% for id in ids %}
+    <url><loc>{{ url('loi_show', {id: id}) }}</loc></url>
+{% endfor %}
+    <url><loc>{{ url('contact') }}</loc></url>
+    <url><loc>{{ url('mentions_legales') }}</loc></url>
+</urlset>
